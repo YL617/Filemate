@@ -59,23 +59,30 @@
         </el-row>
       </el-card>
 
-      <!-- ECharts 饼图：分类统计 -->
+      <!-- ECharts 饼图：分类统计（真实数据） -->
       <el-card style="margin-top: 20px">
         <template #header>
-          <span>分类分布（待实现）</span>
+          <span>分类分布</span>
         </template>
-        <div ref="chartRef" style="height: 300px"></div>
+        <div v-loading="chartLoading" style="min-height: 300px">
+          <el-empty
+            v-if="!hasData"
+            :description="chartError || '暂无处理记录，上传资料后会在这里看到分类分布'"
+            style="height: 300px"
+          />
+          <div v-else ref="chartRef" style="height: 300px"></div>
+        </div>
       </el-card>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Collection } from '@element-plus/icons-vue'
-import { getSession, updateSessionDraft } from '../services/api'
+import { getSession, updateSessionDraft, getHistory } from '../services/api'
 import { useFileStore } from '../stores/fileStore'
 import type { Category } from '../types'
 import * as echarts from 'echarts/core'
@@ -93,6 +100,23 @@ const currentFile = computed(() => fileStore.currentFile)
 const selectedCategory = ref<Category | ''>('')
 const confirming = ref(false)
 
+// 分类分布图表状态（真实数据）
+const chartLoading = ref(false)
+const chartError = ref('')
+const hasData = ref(false)
+const chartData = ref<Array<{ name: string; value: number; itemStyle: { color: string } }>>([])
+
+// 单一森林绿阶梯色板（遵循设计系统：只用一个品牌强调色）
+const CATEGORY_COLORS: Record<string, string> = {
+  '课件': '#2f7d55',
+  '作业': '#3e8a61',
+  '竞赛通知': '#4e9670',
+  '考试通知': '#5ea380',
+  '参考资料': '#6eb090',
+  '大创通知': '#7ebda0',
+  '待确认': '#8fc9b0',
+}
+
 watch(currentFile, (file) => {
   if (file) {
     selectedCategory.value = file.category
@@ -104,7 +128,7 @@ onMounted(() => {
   if (sessionId) {
     loadSession(sessionId)
   }
-  initChart()
+  loadDistribution()
 })
 
 async function loadSession(sessionId: string) {
@@ -133,9 +157,36 @@ async function confirmCategory() {
   }
 }
 
-function initChart() {
-  if (!chartRef.value) return
+async function loadDistribution() {
+  chartLoading.value = true
+  chartError.value = ''
+  try {
+    const history = await getHistory(undefined, 200)
+    const counts: Record<string, number> = {}
+    for (const s of history) {
+      const cat = s.category || '待确认'
+      counts[cat] = (counts[cat] || 0) + 1
+    }
+    chartData.value = Object.entries(counts).map(([name, value]) => ({
+      name,
+      value,
+      itemStyle: { color: CATEGORY_COLORS[name] || '#2f7d55' },
+    }))
+    hasData.value = chartData.value.length > 0
+    if (hasData.value) {
+      await nextTick()
+      renderChart()
+    }
+  } catch (e: any) {
+    chartError.value = e.message || '分类分布加载失败'
+    hasData.value = false
+  } finally {
+    chartLoading.value = false
+  }
+}
 
+function renderChart() {
+  if (!chartRef.value || chartData.value.length === 0) return
   const chart = echarts.init(chartRef.value)
   const option = {
     tooltip: {
@@ -174,27 +225,21 @@ function initChart() {
           itemStyle: {
             shadowBlur: 20,
             shadowOffsetX: 0,
-            shadowColor: 'rgba(16, 185, 129, 0.4)'
+            shadowColor: 'rgba(47, 125, 85, 0.4)'
           },
           label: {
             show: true,
             fontSize: 14,
             fontWeight: 'bold',
-        color: '#183229'
+            color: '#183229'
           }
         },
         labelLine: {
-      lineStyle: { color: '#d7e3d9' }
+          lineStyle: { color: '#d7e3d9' }
         },
-        data: [
-          { value: 35, name: '课件', itemStyle: { color: '#6366f1' } },
-          { value: 28, name: '作业', itemStyle: { color: '#ec4899' } },
-          { value: 15, name: '竞赛通知', itemStyle: { color: '#10b981' } },
-          { value: 12, name: '考试通知', itemStyle: { color: '#ef4444' } },
-          { value: 10, name: '参考资料', itemStyle: { color: '#f59e0b' } }
-        ]
-      }
-    ]
+        data: chartData.value,
+      },
+    ],
   }
   chart.setOption(option)
 }
@@ -217,7 +262,7 @@ function initChart() {
 }
 
 .confidence {
-  color: #888;
+  color: var(--text-muted);
   font-size: 14px;
 }
 </style>

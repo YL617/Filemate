@@ -95,15 +95,18 @@ async function confirmName() {
 
 .filename {
   font-size: 16px;
-  font-family: monospace;
-  padding: 8px;
-  background: #f5f7fa;
-  border-radius: 4px;
+  font-family: var(--font-mono);
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
 }
 
 .filename.suggested {
-  background: #e6f7ff;
-  color: #1890ff;
-  font-weight: bold;
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  font-weight: 600;
 }
 </style>
