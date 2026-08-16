@@ -4,6 +4,17 @@
 > 服务：FastAPI `http://127.0.0.1:8001`、Vue `http://127.0.0.1:5173`
 > 基线 commit：`049d7d6`（验收分支 `codex/product-evaluation-2026-08-16`）
 
+## 0. 最新 main 复核（004aa4c）
+
+维护者合并 PR #13 后，本地基于 `004aa4c` 重新执行浏览器冒烟：
+
+- 13 个现役 Vue 路由全部 200，页面标题正确，无控制台错误。
+- 额外检查 `/ai-learning`：返回 200，但属于 SPA fallback，当前 `filemate/web/src/router/index.ts` 并未注册该 Vue 路由。
+- 额外检查 `/ai/learning/sessions` API：当前 `server.py` 未实现，返回 404。
+- 结论：新增检查项不会造成现有页面回归；若 `/ai-learning` 是计划中的新页面，需要 A1/A2 任务后续补充路由和后端接口。
+
+说明：PR #13 中记录的 13 路由冒烟基线是 `049d7d6`；本补充验收基线为 `004aa4c`。本地 pytest 实测仍为 `314 passed`，负责人合并环境实测 `331 passed`，差异来自运行环境和测试收集范围，后续文档统一标注基线 commit。
+
 ## 1. 13 个前端路由冒烟
 
 全部 13 个路由均返回 200，页面标题正确，无控制台错误。
