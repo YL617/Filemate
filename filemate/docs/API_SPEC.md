@@ -210,7 +210,7 @@ name = namer.generate(
 **边界行为：**
 - `category` 不在合法集合 → 强制改写 `"待确认"`
 - `course`/`task`/`status` 空字符串 → 替换为 `"未分类"` / `"未命名"` / `"待处理"`
-- `task` 长度 > 20 字 → 尝试 LLM 精简，失败则硬截断到 20 字
+- `task` 长度 > 15 字 → 尝试 LLM 精简，失败则硬截断到 15 字
 - 文件名总长度 > 80 → 截断 `course` 到 10 字、`task` 到 10 字，仍超则再截到 6 字
 
 ---
@@ -411,6 +411,36 @@ AI 生成接口成功时同时返回 `ctx_id`、`source_id`、`artifact_id`。�
 
 ---
 
+## 4.8 文件处理、知识库与学习闭环补充 API
+
+下表按 `server.py` 现役路由整理，用于补齐 4.6/4.7 未覆盖的接口。
+
+| 方法 | 路径 | 作用 | 持久化/副作用 |
+|---|---|---|---|
+| `POST` | `/process` | 上传并处理单个文件 | 保存 `.filemate-data/inbox`，写入 Session |
+| `GET` | `/sessions` | 查询历史 Session | 无 |
+| `GET` | `/sessions/{session_id}` | 获取 Session 详情 | 无 |
+| `GET` | `/sessions/{session_id}/ics` | 获取确认后的 `.ics` 内容 | 无 |
+| `GET` | `/knowledge/artifacts/{artifact_id}` | 获取单个 AI 产物 | 无 |
+| `PATCH` | `/knowledge/artifacts/{artifact_id}` | 更新产物标题与内容 | 写入 `artifacts` |
+| `GET` | `/knowledge/search` | 跨资料检索 | 无 |
+| `POST` | `/quiz/attempts` | 提交作答并判题 | 写入 `quiz_attempts`，更新错题 |
+| `GET` | `/wrongbook` | 查询错题列表 | 无 |
+| `GET` | `/review/today` | 今日复习队列 | 无 |
+| `GET` | `/study-plans` | 查询学习计划列表 | 无 |
+| `GET` | `/study-plans/{plan_id}` | 查询单个学习计划 | 无 |
+| `PATCH` | `/study-plans/{plan_id}/days/{day_index}` | 更新每日完成状态 | 写入 `study_plans.completed_days` |
+| `POST` | `/interviews` | 创建模拟面试 | 写入 `interview_sessions` |
+| `GET` | `/interviews/{interview_id}` | 获取面试进度 | 无 |
+| `POST` | `/interviews/{interview_id}/answers` | 提交面试回答并评分 | 写入 `interview_turns` |
+| `GET` | `/analytics/overview` | 成长数据聚合 | 无 |
+| `POST` | `/evaluation/feedback` | 提交匿名产品反馈 | 写入 `product_feedback` |
+| `GET` | `/evaluation/feedback/summary` | 反馈汇总 | 无 |
+| `GET` | `/evaluation/feedback/export.csv` | 导出匿名反馈 CSV | 无 |
+| `GET` | `/api/health` | 健康检查 | 无 |
+
+---
+
 ## 变更记录
 
 | 日期 | 版本 | 内容 | 作者 |
@@ -420,3 +450,4 @@ AI 生成接口成功时同时返回 `ctx_id`、`source_id`、`artifact_id`。�
 | 2026-08-09 | v1.1 | 增加版本迁移、学习资产持久化与 HTTP API | Codex |
 | 2026-08-09 | v1.2 | 增加确认执行、操作快照、幂等保护与撤销 API | Codex |
 | 2026-08-09 | v1.3 | 校准当前 v8 数据模型、归档冲突策略与线程安全说明 | Codex |
+| 2026-08-16 | v1.4 | 补齐现役 HTTP 路由表，修正命名阈值 20→15 | 杨乐 |
