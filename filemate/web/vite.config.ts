@@ -58,6 +58,12 @@ export default defineConfig({
         target: 'http://127.0.0.1:8001',
         changeOrigin: true,
         ws: true,
+        bypass(req) {
+          const url = req.url ?? ''
+          if (url === '/knowledge' || url.startsWith('/knowledge?')) {
+            return '/index.html'
+          }
+        },
       },
       '^/quiz': {
         target: 'http://127.0.0.1:8001',
@@ -66,6 +72,12 @@ export default defineConfig({
       '^/wrongbook': {
         target: 'http://127.0.0.1:8001',
         changeOrigin: true,
+        bypass(req) {
+          const url = req.url ?? ''
+          if (url === '/wrongbook' || url.startsWith('/wrongbook?')) {
+            return '/index.html'
+          }
+        },
       },
       '^/interviews': {
         target: 'http://127.0.0.1:8001',

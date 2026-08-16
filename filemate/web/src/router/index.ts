@@ -50,12 +50,6 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'AI工具箱' }
   },
   {
-    path: '/ai-learning',
-    name: 'AILearning',
-    component: () => import('../views/AILearning.vue'),
-    meta: { title: 'AI辅助学习' }
-  },
-  {
     path: '/study-plan',
     name: 'StudyPlan',
     component: () => import('../views/StudyPlan.vue'),

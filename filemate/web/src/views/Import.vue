@@ -91,9 +91,7 @@
           :style="{ '--delay': index * 0.05 + 's' }"
           :class="{ 'animate-in': true }"
         >
-          <div class="queue-icon">
-            <el-icon :size="22"><component :is="getFileIcon(item.name)" /></el-icon>
-          </div>
+          <div class="queue-icon">{{ getFileIcon(item.name) }}</div>
           <div class="queue-info">
             <div class="queue-name">{{ item.name }}</div>
             <div class="queue-size">{{ formatSize(item.size) }}</div>
@@ -125,7 +123,7 @@
 
     <!-- Tips -->
     <div class="tips-card">
-      <div class="tips-icon"><el-icon><InfoFilled /></el-icon></div>
+      <div class="tips-icon">💡</div>
       <div class="tips-content">
         <h4>使用提示</h4>
         <ul>
@@ -141,17 +139,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import {
-  Upload,
-  FolderOpened,
-  Document,
-  List,
-  Files,
-  Picture,
-  TrendCharts,
-  Memo,
-  InfoFilled
-} from '@element-plus/icons-vue'
+import { Upload, FolderOpened, Document, List } from '@element-plus/icons-vue'
 import { uploadFile } from '../services/api'
 
 const fileInput = ref<HTMLInputElement>()
@@ -171,11 +159,11 @@ const uploadQueue = ref<Array<{
 const formats = ['DOC', 'DOCX', 'PDF', 'PPT', 'PPTX', 'TXT', 'JPG', 'PNG']
 
 const progressColors = [
-  { color: '#2f7d55', percentage: 20 },
-  { color: '#3e8a61', percentage: 40 },
-  { color: '#4e9670', percentage: 60 },
-  { color: '#6eb090', percentage: 80 },
-  { color: '#8fc9b0', percentage: 100 }
+  { color: '#10b981', percentage: 20 },
+  { color: '#059669', percentage: 40 },
+  { color: '#34d399', percentage: 60 },
+  { color: '#6ee7b7', percentage: 80 },
+  { color: '#22c55e', percentage: 100 }
 ]
 
 const triggerFileInput = () => {
@@ -229,10 +217,15 @@ const processQueue = async () => {
   pending.status = 'uploading'
 
   try {
-    await uploadFile(pending.file, (percent) => {
-      uploadProgress.value = percent
-    })
+    const progressInterval = setInterval(() => {
+      if (uploadProgress.value < 90) {
+        uploadProgress.value += Math.random() * 18
+      }
+    }, 180)
 
+    await uploadFile(pending.file)
+
+    clearInterval(progressInterval)
     uploadProgress.value = 100
     pending.status = 'success'
 
@@ -295,12 +288,11 @@ const uploadFromClipboard = async () => {
 
 const getFileIcon = (name: string) => {
   const ext = name.split('.').pop()?.toLowerCase() || ''
-  const icons: Record<string, any> = {
-    doc: Document, docx: Document, pdf: Files,
-    ppt: TrendCharts, pptx: TrendCharts,
-    txt: Memo, jpg: Picture, png: Picture, gif: Picture
+  const icons: Record<string, string> = {
+    doc: '📄', docx: '📄', pdf: '📕', ppt: '📊', pptx: '📊',
+    txt: '📝', jpg: '🖼️', png: '🖼️', gif: '🖼️'
   }
-  return icons[ext] || FolderOpened
+  return icons[ext] || '📁'
 }
 
 const formatSize = (bytes: number) => {
@@ -391,13 +383,17 @@ const getStatusText = (status: string) => {
 }
 
 .upload-zone:hover {
-  border-color: var(--accent-border);
-  background: var(--accent-soft);
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.02);
+}
+
+.upload-zone:hover .upload-icon {
+  transform: scale(1.05);
 }
 
 .upload-zone.is-dragover {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.06);
   border-style: solid;
   transform: scale(1.01);
 }
@@ -461,9 +457,9 @@ const getStatusText = (status: string) => {
 }
 
 .format-tag:hover {
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
-  color: var(--accent);
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.2);
+  color: #6ee7b7;
 }
 
 /* Uploading State */
@@ -556,7 +552,7 @@ const getStatusText = (status: string) => {
   align-items: center;
   gap: 10px;
   padding: 14px 32px;
-  background: var(--accent);
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
   border: none;
   border-radius: var(--radius-md);
   color: #fff;
@@ -567,12 +563,12 @@ const getStatusText = (status: string) => {
     transform var(--transition-fast),
     box-shadow var(--transition-fast),
     background var(--transition-fast);
-  box-shadow: 0 4px 16px rgba(47, 125, 85, 0.3);
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
 }
 
 .btn-primary:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(47, 125, 85, 0.35);
+  box-shadow: 0 6px 24px rgba(16, 185, 129, 0.4);
 }
 
 .btn-primary:active:not(:disabled) {
@@ -719,23 +715,23 @@ const getStatusText = (status: string) => {
 }
 
 .status-badge.status-pending {
-  background: rgba(154, 101, 29, 0.1);
-  color: #9a651d;
+  background: rgba(251, 191, 36, 0.1);
+  color: #fbbf24;
 }
 
 .status-badge.status-uploading {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: rgba(99, 102, 241, 0.1);
+  color: #6ee7b7;
 }
 
 .status-badge.status-success {
-  background: rgba(47, 125, 85, 0.1);
-  color: #2f7d55;
+  background: rgba(34, 197, 94, 0.1);
+  color: #4ade80;
 }
 
 .status-badge.status-error {
-  background: rgba(180, 75, 75, 0.1);
-  color: #b44b4b;
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
 }
 
 .queue-actions {
@@ -767,8 +763,8 @@ const getStatusText = (status: string) => {
 }
 
 .action-btn.delete:hover {
-  border-color: rgba(180, 75, 75, 0.35);
-  color: #b44b4b;
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #f87171;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -779,21 +775,20 @@ const getStatusText = (status: string) => {
   display: flex;
   gap: 16px;
   padding: 20px 24px;
-  background: var(--accent-soft);
-  border: 1px solid var(--accent-border);
+  background: rgba(99, 102, 241, 0.04);
+  border: 1px solid rgba(99, 102, 241, 0.12);
   border-radius: var(--radius-md);
   animation: fadeUp 0.4s ease-out 0.3s backwards;
 }
 
 .tips-icon {
   font-size: 20px;
-  color: var(--accent);
 }
 
 .tips-content h4 {
   font-size: 14px;
   font-weight: 600;
-  color: var(--accent);
+  color: #6ee7b7;
   margin: 0 0 8px;
 }
 

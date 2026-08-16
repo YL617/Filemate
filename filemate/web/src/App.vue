@@ -180,8 +180,7 @@ import {
   Tickets,
   Microphone,
   DataAnalysis,
-  FolderOpened,
-  ChatDotSquare
+  FolderOpened
 } from '@element-plus/icons-vue'
 import Logo from './components/Logo.vue'
 import { checkHealth, getHistory } from './services/api'
@@ -217,7 +216,6 @@ const menuGroups = [
   {
     label: '学习智能',
     items: [
-      { path: '/ai-learning', title: 'AI辅助学习', icon: ChatDotSquare },
       { path: '/ai-tools', title: '资料理解', icon: MagicStick, badge: '可用' },
       { path: '/study-plan', title: '学习计划', icon: Reading },
       { path: '/wrongbook', title: '错题复盘', icon: Tickets, badge: '新' },

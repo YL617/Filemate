@@ -585,13 +585,13 @@ const exportCardsAsCsv = () => {
 }
 
 .tab-btn:hover {
-  border-color: var(--accent-border);
+  border-color: rgba(99, 102, 241, 0.3);
 }
 
 .tab-btn.active {
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
-  color: var(--accent);
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: #a5b4fc;
 }
 
 .tab-icon {
@@ -611,13 +611,13 @@ const exportCardsAsCsv = () => {
 }
 
 .upload-zone:hover {
-  border-color: var(--accent-border);
-  background: var(--accent-soft);
+  border-color: rgba(99, 102, 241, 0.4);
+  background: rgba(99, 102, 241, 0.03);
 }
 
 .upload-zone.is-dragover {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.08);
 }
 
 .upload-icon {
@@ -633,7 +633,7 @@ const exportCardsAsCsv = () => {
 
 .upload-filename {
   font-size: 16px;
-  color: var(--accent);
+  color: #a5b4fc;
   font-weight: 500;
   margin: 0 0 8px;
 }
@@ -679,7 +679,7 @@ const exportCardsAsCsv = () => {
 
 .config-value {
   font-size: 14px;
-  color: var(--accent);
+  color: #a5b4fc;
   min-width: 60px;
 }
 
@@ -694,7 +694,7 @@ const exportCardsAsCsv = () => {
   align-items: center;
   gap: 10px;
   padding: 14px 40px;
-  background: var(--accent);
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
   border: none;
   border-radius: 12px;
   color: #fff;
@@ -706,7 +706,7 @@ const exportCardsAsCsv = () => {
 
 .btn-primary:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(47, 125, 85, 0.35);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
 }
 
 .btn-primary:disabled {
@@ -858,7 +858,7 @@ const exportCardsAsCsv = () => {
 
 .question-type {
   font-size: 11px;
-  color: var(--accent);
+  color: #a5b4fc;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 8px;
@@ -887,11 +887,11 @@ const exportCardsAsCsv = () => {
 
 .question-answer {
   font-size: 13px;
-  color: var(--accent);
+  color: #4ade80;
   margin-bottom: 4px;
 }
 
-.question-answer.incorrect { color: var(--danger); }
+.question-answer.incorrect { color: #b45309; }
 .answer-entry { display: flex; gap: 8px; margin: 12px 0; }
 .answer-entry input { flex: 1; padding: 9px 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-elevated); color: var(--text-primary); }
 
@@ -922,7 +922,7 @@ const exportCardsAsCsv = () => {
 .section-title {
   font-size: 15px;
   font-weight: 600;
-  color: var(--accent);
+  color: #a5b4fc;
   margin-bottom: 8px;
 }
 
@@ -947,7 +947,7 @@ const exportCardsAsCsv = () => {
   flex: 1;
   overflow-y: auto;
   padding: 12px;
-  background: var(--bg-elevated);
+  background: rgba(0, 0, 0, 0.2);
   border-radius: 12px;
   margin-bottom: 12px;
 }
@@ -997,12 +997,12 @@ const exportCardsAsCsv = () => {
 .chat-input-area input:focus {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-color: var(--accent);
+  border-color: rgba(99, 102, 241, 0.5);
 }
 
 .send-btn {
   padding: 12px 24px;
-  background: var(--accent);
+  background: #6366f1;
   border: none;
   border-radius: 10px;
   color: #fff;
@@ -1012,7 +1012,7 @@ const exportCardsAsCsv = () => {
 }
 
 .send-btn:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: #4f46e5;
 }
 
 .send-btn:disabled {
@@ -1029,15 +1029,15 @@ const exportCardsAsCsv = () => {
 .btn-chat {
   padding: 12px 24px;
   background: transparent;
-  border: 1px solid var(--accent-border);
+  border: 1px solid rgba(99, 102, 241, 0.4);
   border-radius: 10px;
-  color: var(--accent);
+  color: #a5b4fc;
   font-size: 14px;
   cursor: pointer;
 }
 
 .btn-chat:hover {
-  background: var(--accent-soft);
+  background: rgba(99, 102, 241, 0.1);
 }
 
 /* 错误提示 */
@@ -1047,7 +1047,7 @@ const exportCardsAsCsv = () => {
   left: 50%;
   transform: translateX(-50%);
   padding: 12px 24px;
-  background: rgba(180, 75, 75, 0.92);
+  background: rgba(239, 68, 68, 0.9);
   border-radius: 10px;
   color: #fff;
   font-size: 14px;

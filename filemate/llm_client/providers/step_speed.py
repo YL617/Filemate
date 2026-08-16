@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import requests
 
+from .base import BaseLLMProvider
 from ..config import LLMConfig
 from ..exceptions import (
     LLMAPIError,
@@ -14,7 +16,6 @@ from ..exceptions import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
-from .base import BaseLLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -109,42 +110,19 @@ class StepSpeedProvider(BaseLLMProvider):
         body = resp.json()
         try:
             # 根据API类型解析响应
+            # Chat Completions: body["choices"][0]["message"]["content"]
+            # Messages API (云知声/Step): body["content"][0]["text"] 或 body["content"][1]["text"]
             text = ""
-            # 方式1: Messages API 格式 (content 是列表)
             if "content" in body and isinstance(body["content"], list):
-                text_parts: list[str] = []
-                thinking_parts: list[str] = []
                 for item in body["content"]:
                     if item.get("type") == "text":
-                        text_parts.append(item.get("text", ""))
-                    elif item.get("type") == "thinking":
-                        thinking = item.get("thinking", "")
-                        if thinking:
-                            thinking_parts.append(thinking)
-                text = "".join(text_parts)
-                # 若模型只返回了 thinking block（token 耗尽等情况），把 thinking 作为 fallback
-                if not text and thinking_parts:
-                    text = "\n\n".join(thinking_parts)
-            # 方式2: Messages API 格式 (content 是字符串)
-            elif "content" in body and isinstance(body["content"], str):
-                text = body["content"]
-            # 方式3: Chat Completions 格式
-            elif "choices" in body:
-                msg = body["choices"][0]["message"]
-                text = msg.get("content", "")
-                # 有些模型把内容放在 reasoning_content
-                if not text:
-                    text = msg.get("reasoning_content", "")
-            # 兜底：搜索常见字段
-            if not text:
-                for key in ("text", "response", "output", "result"):
-                    if key in body and isinstance(body[key], str):
-                        text = body[key]
+                        text = item.get("text", "")
                         break
-
-            if not text:
-                logger.warning("LLM 返回空内容，响应结构: %s",
-                               {k: type(v).__name__ for k, v in body.items()})
+                    # 跳过thinking类型
+                    elif item.get("type") == "thinking":
+                        continue
+            elif "choices" in body:
+                text = body["choices"][0]["message"]["content"]
         except (KeyError, IndexError) as exc:
             raise LLMAPIError(f"Step API 响应格式异常: {body}") from exc
 

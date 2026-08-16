@@ -157,8 +157,8 @@ function updateChart() {
               type: 'linear',
               x: 0, y: 0, x2: 1, y2: 0,
               colorStops: [
-                { offset: 0, color: '#2f7d55' },
-                { offset: 1, color: '#4e9670' }
+                { offset: 0, color: '#10b981' },
+                { offset: 1, color: '#34d399' }
               ]
             },
             borderRadius: [0, 4, 4, 0]
@@ -174,7 +174,7 @@ function updateChart() {
         itemStyle: {
           emphasis: {
             shadowBlur: 10,
-            shadowColor: 'rgba(47, 125, 85, 0.3)'
+            shadowColor: 'rgba(16, 185, 129, 0.3)'
           }
         }
       }
@@ -217,13 +217,13 @@ function updateChart() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent-soft);
+  background: rgba(16, 185, 129, 0.06);
   border-radius: 50%;
   margin-bottom: 20px;
 }
 
 .empty-icon-wrap .el-icon {
-  color: var(--accent);
+  color: var(--accent-primary, #10b981);
 }
 
 .empty-schedule h4 {

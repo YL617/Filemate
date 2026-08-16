@@ -182,6 +182,39 @@ async function undoExecution(row: HistoryItem) {
   gap: 8px;
 }
 
+/* 表格样式统一为暗色主题 */
+:deep(.el-table) {
+  --el-table-bg-color: #16161e;
+  --el-table-tr-bg-color: #16161e;
+  --el-table-header-bg-color: #1a1a24;
+  --el-table-row-hover-bg-color: rgba(16, 185, 129, 0.08);
+  --el-table-border-color: rgba(255, 255, 255, 0.06);
+  --el-table-text-color: #a1a1aa;
+  --el-table-header-text-color: #71717a;
+}
+
+:deep(.el-table__row--striped) {
+  background: rgba(255, 255, 255, 0.02) !important;
+}
+
+:deep(.el-table__row--striped td) {
+  background: transparent !important;
+}
+
+:deep(.el-table td.el-table__cell) {
+  background: transparent;
+  border-bottom-color: rgba(255, 255, 255, 0.04);
+}
+
+:deep(.el-table th.el-table__cell) {
+  background: #1a1a24 !important;
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+:deep(.el-table__body tr:hover > td.el-table__cell) {
+  background: rgba(16, 185, 129, 0.08) !important;
+}
+
 /* 分页样式 */
 :deep(.el-pagination) {
   --el-pagination-bg-color: transparent;
