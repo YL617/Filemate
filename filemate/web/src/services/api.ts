@@ -47,7 +47,10 @@ api.interceptors.response.use(
 )
 
 // 上传文件
-export async function uploadFile(file: File): Promise<ProcessingSession> {
+export async function uploadFile(
+  file: File,
+  onProgress?: (percent: number) => void
+): Promise<ProcessingSession> {
   const formData = new FormData()
   formData.append('file', file)
 
@@ -57,6 +60,11 @@ export async function uploadFile(file: File): Promise<ProcessingSession> {
     {
       headers: {
         'Content-Type': 'multipart/form-data'
+      },
+      onUploadProgress: (e) => {
+        if (onProgress && e.total) {
+          onProgress(Math.round((e.loaded / e.total) * 100))
+        }
       }
     }
   )
