@@ -4,8 +4,12 @@
       title="请先在导入页面上传文件"
       type="info"
       :closable="false"
-      v-if="!currentFile"
+      v-if="!currentFile && !loadError"
     />
+
+    <el-card v-else-if="loadError">
+      <DataState :error="loadError" @retry="loadSession" />
+    </el-card>
 
     <template v-else>
       <el-card>
@@ -74,6 +78,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import type { Milestone } from '../types'
 import { useFileStore } from '../stores/fileStore'
 import { getSession, getIcsContent, downloadIcs as downloadIcsApi } from '../services/api'
+import DataState from '../components/DataState.vue'
 
 echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer])
 
@@ -83,6 +88,7 @@ const chartRef = ref<HTMLElement>()
 let chartInstance: ReturnType<typeof echarts.init> | null = null
 const milestones = ref<Milestone[]>([])
 const icsLoading = ref(false)
+const loadError = ref('')
 const currentFile = computed(() => fileStore.currentFile)
 
 watch(currentFile, (file) => {
@@ -96,12 +102,20 @@ function handleChartResize() {
   chartInstance?.resize()
 }
 
-onMounted(async () => {
+async function loadSession() {
   const sessionId = route.query.session as string
-  if (sessionId) {
+  if (!sessionId) return
+  loadError.value = ''
+  try {
     const session = await getSession(sessionId)
     fileStore.setCurrentFile(session)
+  } catch (e: any) {
+    loadError.value = e?.message || '日程加载失败'
   }
+}
+
+onMounted(async () => {
+  await loadSession()
   initChart()
   window.addEventListener('resize', handleChartResize)
 })
