@@ -4,6 +4,17 @@
 > 服务：FastAPI `http://127.0.0.1:8001`、Vue `http://127.0.0.1:5173`
 > 基线 commit：`049d7d6`（验收分支 `codex/product-evaluation-2026-08-16`）
 
+## 0. 最新 main 复核（081a6e3，2026-08-23）
+
+按 08-17 组会行动项，基于最新 `main`（`081a6e3`，含 A3 PR #20 / 文档 PR #21）重新执行浏览器冒烟：
+
+- 13 个现役 Vue 路由全部 200，页面标题正确，无控制台错误。
+- 额外检查 `/ai-learning`：返回 200，但属于 SPA fallback，当前 `filemate/web/src/router/index.ts` 未注册该 Vue 路由。
+- 额外检查 `/ai/learning/sessions` API：当前 `server.py` 未实现，返回 404。
+- 结论：新增功能未造成现有页面回归；`/ai-learning` 若为计划页面，仍需后续补充路由和后端接口。
+
+证据：`_working/browser-acceptance-081a6e3.json`、`_working/browser-081a6e3/*.png`
+
 ## 1. 13 个前端路由冒烟
 
 全部 13 个路由均返回 200，页面标题正确，无控制台错误。

@@ -1,7 +1,7 @@
 # FileMate 跨模块联调验证记录
 
 > 验证日期：2026-08-16
-> 基线：`main` = `049d7d6`
+> 基线：`049d7d6` → `081a6e3`
 > 执行人：杨乐（产品、评测与跨模块联调）
 
 ## 已执行
@@ -64,3 +64,9 @@ powershell -ExecutionPolicy Bypass -File scripts/verify.ps1
 ## 结论
 
 当前后端测试和离线评测基线可复现且为绿；主要风险不是“代码全红”，而是任务卡 A1–A5 尚未落地、API 文档有缺口、e2e 样本缺失。
+
+## 081a6e3 复核（2026-08-23）
+
+- 基于最新 `main`（`081a6e3`）重跑浏览器冒烟：13 个 Vue 路由 200，无控制台错误。
+- `/ai-learning` 为 SPA fallback，`/ai/learning/sessions` 返回 404。
+- A3（PR #20）与文档修正（PR #21）已合入，需在后续 A5 验收中纳入数据生命周期用例。
