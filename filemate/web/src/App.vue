@@ -185,6 +185,7 @@ import {
   MagicStick,
   Menu,
   Monitor,
+  Notebook,
   Reading,
   Refresh,
   Setting,
@@ -232,6 +233,7 @@ const menuGroups = [
       { path: '/study-plan', title: '学习计划', icon: Reading },
       { path: '/wrongbook', title: '错题复盘', icon: Tickets, badge: '新' },
       { path: '/interview', title: '模拟面试', icon: Microphone, badge: 'Beta' },
+      { path: '/interview-bank', title: '题库管理', icon: Notebook },
       { path: '/growth', title: '成长数据', icon: DataAnalysis }
     ]
   }

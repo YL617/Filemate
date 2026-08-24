@@ -1087,6 +1087,20 @@ class InterviewAnswerRequest(BaseModel):
     answer: str
 
 
+class InterviewQuestionCreate(BaseModel):
+    scenario: str
+    difficulty: str
+    text: str
+    enabled: bool = True
+
+
+class InterviewQuestionUpdate(BaseModel):
+    scenario: str | None = None
+    difficulty: str | None = None
+    text: str | None = None
+    enabled: bool | None = None
+
+
 class StudyPlanDayRequest(BaseModel):
     completed: bool
 
@@ -1417,17 +1431,101 @@ def today_review():
     )
 
 
+@app.get("/interview/questions", response_model=ApiResponse)
+def list_interview_questions(
+    scenario: str | None = Query(None),
+    difficulty: str | None = Query(None),
+    enabled: bool | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+):
+    """列出面试题库题目。"""
+    return ApiResponse(
+        success=True,
+        data=_storage.list_interview_questions(
+            scenario=scenario,
+            difficulty=difficulty,
+            enabled=enabled,
+            limit=limit,
+        ),
+    )
+
+
+@app.post("/interview/questions", response_model=ApiResponse)
+def create_interview_question(request: InterviewQuestionCreate):
+    """新增面试题库题目。"""
+    try:
+        question_id = _storage.create_interview_question(
+            scenario=request.scenario,
+            difficulty=request.difficulty,
+            text=request.text,
+            enabled=1 if request.enabled else 0,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return ApiResponse(
+        success=True,
+        data=_storage.get_interview_question(question_id),
+    )
+
+
+@app.patch("/interview/questions/{question_id}", response_model=ApiResponse)
+def update_interview_question(question_id: str, request: InterviewQuestionUpdate):
+    """更新面试题库题目。"""
+    updates = {
+        key: value
+        for key, value in request.model_dump(exclude_unset=True).items()
+        if value is not None
+    }
+    if not updates:
+        raise HTTPException(status_code=422, detail="没有可更新的字段")
+    if "enabled" in updates:
+        updates["enabled"] = 1 if updates["enabled"] else 0
+    try:
+        ok = _storage.update_interview_question(question_id, **updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not ok:
+        raise HTTPException(status_code=404, detail="题目不存在")
+    return ApiResponse(
+        success=True,
+        data=_storage.get_interview_question(question_id),
+    )
+
+
+@app.delete("/interview/questions/{question_id}", response_model=ApiResponse)
+def delete_interview_question(question_id: str):
+    """删除面试题库题目。"""
+    ok = _storage.delete_interview_question(question_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="题目不存在")
+    return ApiResponse(success=True, data={"deleted": True})
+
+
 @app.post("/interviews", response_model=ApiResponse)
 def start_interview(request: InterviewStartRequest):
     """创建一场可持续复盘的模拟面试。"""
     from filemate.understanding import build_questions
 
+    bank_questions = _storage.select_interview_questions(
+        scenario=request.scenario,
+        difficulty=request.difficulty,
+        limit=5,
+    )
+    questions = [item["text"] for item in bank_questions]
+    question_ids = [item["id"] for item in bank_questions]
+    if len(questions) < 5:
+        for fallback in build_questions(request.scenario, request.target_role):
+            if len(questions) >= 5:
+                break
+            if fallback not in questions:
+                questions.append(fallback)
     interview = _storage.create_interview(
         target_role=request.target_role.strip() or "通用岗位",
         scenario=request.scenario,
         difficulty=request.difficulty,
-        questions=build_questions(request.scenario, request.target_role),
+        questions=questions,
     )
+    interview["question_ids"] = question_ids
     interview["current_question"] = interview["questions"][0]
     return ApiResponse(success=True, data=interview)
 

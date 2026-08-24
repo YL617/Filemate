@@ -464,6 +464,7 @@ export interface InterviewEvaluation {
   score: number
   dimensions: Record<string, number>
   feedback: string
+  scoring_mode?: 'llm' | 'local_fallback'
 }
 
 export interface InterviewTurn {
@@ -483,6 +484,7 @@ export interface InterviewSession {
   difficulty: string
   status: 'active' | 'completed'
   questions: string[]
+  question_ids?: string[]
   current_index: number
   current_question: string | null
   overall_score: number
@@ -514,6 +516,70 @@ export async function answerInterview(
   )
   if (response.success && response.data) return response.data
   throw new Error(response.error || '面试回答评分失败')
+}
+
+export interface InterviewQuestion {
+  id: string
+  scenario: string
+  difficulty: string
+  text: string
+  enabled: number | boolean
+  created_at?: string
+  updated_at?: string
+}
+
+export interface InterviewQuestionPayload {
+  scenario: string
+  difficulty: string
+  text: string
+  enabled?: boolean
+}
+
+export async function getInterviewQuestions(
+  params?: { scenario?: string; difficulty?: string; enabled?: boolean }
+): Promise<InterviewQuestion[]> {
+  const query = new URLSearchParams()
+  if (params?.scenario) query.set('scenario', params.scenario)
+  if (params?.difficulty) query.set('difficulty', params.difficulty)
+  if (params?.enabled !== undefined) query.set('enabled', String(params.enabled))
+  const response = await api.get<any, ApiResponse<InterviewQuestion[]>>(
+    `/interview/questions?${query.toString()}`
+  )
+  if (response.success && response.data) return response.data
+  throw new Error(response.error || '获取面试题库失败')
+}
+
+export async function createInterviewQuestion(
+  payload: InterviewQuestionPayload
+): Promise<InterviewQuestion> {
+  const response = await api.post<any, ApiResponse<InterviewQuestion>>(
+    '/interview/questions',
+    payload
+  )
+  if (response.success && response.data) return response.data
+  throw new Error(response.error || '新增题目失败')
+}
+
+export async function updateInterviewQuestion(
+  questionId: string,
+  payload: Partial<InterviewQuestionPayload>
+): Promise<InterviewQuestion> {
+  const response = await api.patch<any, ApiResponse<InterviewQuestion>>(
+    `/interview/questions/${questionId}`,
+    payload
+  )
+  if (response.success && response.data) return response.data
+  throw new Error(response.error || '更新题目失败')
+}
+
+export async function deleteInterviewQuestion(
+  questionId: string
+): Promise<void> {
+  const response = await api.delete<any, ApiResponse<{ deleted: boolean }>>(
+    `/interview/questions/${questionId}`
+  )
+  if (response.success && response.data?.deleted) return
+  throw new Error(response.error || '删除题目失败')
 }
 
 export interface LearningAnalytics {

@@ -68,6 +68,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '模拟面试' }
   },
   {
+    path: '/interview-bank',
+    name: 'InterviewBank',
+    component: () => import('../views/InterviewBank.vue'),
+    meta: { title: '题库管理' }
+  },
+  {
     path: '/growth',
     name: 'Growth',
     component: () => import('../views/Growth.vue'),

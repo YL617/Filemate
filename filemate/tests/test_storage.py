@@ -116,10 +116,10 @@ class TestSchemaInit:
             assert expected in names
 
     def test_versioned_migrations_applied(self, storage: SQLiteStorage) -> None:
-        assert storage.get_schema_version() == 8
+        assert storage.get_schema_version() == 9
         migrations = storage.list_migrations()
-        assert [item["version"] for item in migrations] == [1, 2, 3, 4, 5, 6, 7, 8]
-        assert migrations[-1]["name"] == "spaced_repetition"
+        assert [item["version"] for item in migrations] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        assert migrations[-1]["name"] == "interview_question_bank"
 
     def test_knowledge_tables_and_local_workspace_exist(
         self,
@@ -143,6 +143,7 @@ class TestSchemaInit:
             "wrong_questions",
             "interview_sessions",
             "interview_turns",
+            "interview_questions",
             "study_plans",
             "product_feedback",
         } <= tables
@@ -834,3 +835,59 @@ class TestReversibleExecutionStorage:
         assert created is True
         assert retried["execution_id"] != failed["execution_id"]
         assert storage.get_session("exec-3")["status"] == "failed"
+
+
+class TestInterviewQuestionBank:
+    def test_crud_and_unique(self, storage: SQLiteStorage) -> None:
+        qid = storage.create_interview_question(
+            scenario="求职面试",
+            difficulty="入门",
+            text="请做一分钟自我介绍。",
+        )
+        assert storage.get_interview_question(qid)["text"] == "请做一分钟自我介绍。"
+
+        # 同场景、同难度、同内容再次创建返回同一题目
+        duplicate_id = storage.create_interview_question(
+            scenario="求职面试",
+            difficulty="入门",
+            text="请做一分钟自我介绍。",
+        )
+        assert duplicate_id == qid
+
+        assert storage.update_interview_question(
+            qid, text="请做两分钟自我介绍。"
+        )
+        assert storage.get_interview_question(qid)["text"] == "请做两分钟自我介绍。"
+        assert storage.delete_interview_question(qid)
+        assert storage.get_interview_question(qid) is None
+
+    def test_select_filters_enabled(self, storage: SQLiteStorage) -> None:
+        enabled_id = storage.create_interview_question(
+            scenario="竞赛答辩",
+            difficulty="标准",
+            text="请介绍项目核心架构。",
+        )
+        disabled_id = storage.create_interview_question(
+            scenario="竞赛答辩",
+            difficulty="标准",
+            text="请介绍项目团队分工。",
+            enabled=0,
+        )
+        selected = storage.select_interview_questions(
+            scenario="竞赛答辩",
+            difficulty="标准",
+            limit=5,
+        )
+        ids = {item["id"] for item in selected}
+        assert enabled_id in ids
+        assert disabled_id not in ids
+
+    def test_seed_is_idempotent(self, storage: SQLiteStorage) -> None:
+        rows = [
+            {"scenario": "求职面试", "difficulty": "入门", "text": "请自我介绍。"},
+            {"scenario": "竞赛答辩", "difficulty": "标准", "text": "请介绍核心架构。"},
+        ]
+        storage.ensure_interview_questions(rows)
+        storage.ensure_interview_questions(rows)
+        questions = storage.list_interview_questions()
+        assert len(questions) == 2

@@ -447,11 +447,17 @@ AI 生成接口成功时同时返回 `ctx_id`、`source_id`、`artifact_id`。�
 | `POST` | `/interviews` | 创建模拟面试 | 写入 `interview_sessions` |
 | `GET` | `/interviews/{interview_id}` | 获取面试进度 | 无 |
 | `POST` | `/interviews/{interview_id}/answers` | 提交面试回答并评分 | 写入 `interview_turns` |
+| `GET` | `/interview/questions` | 列出面试题库题目 | 支持 `scenario` / `difficulty` / `enabled` 过滤 |
+| `POST` | `/interview/questions` | 新增题库题目 | 写入 `interview_questions` |
+| `PATCH` | `/interview/questions/{question_id}` | 更新题库题目 | 更新 `interview_questions` |
+| `DELETE` | `/interview/questions/{question_id}` | 删除题库题目 | 删除 `interview_questions` |
 | `GET` | `/analytics/overview` | 成长数据聚合 | 无 |
 | `POST` | `/evaluation/feedback` | 提交匿名产品反馈 | 写入 `product_feedback` |
 | `GET` | `/evaluation/feedback/summary` | 反馈汇总 | 无 |
 | `GET` | `/evaluation/feedback/export.csv` | 导出匿名反馈 CSV | 无 |
 | `GET` | `/api/health` | 健康检查 | 无 |
+
+说明：`POST /interviews` 创建面试时按场景和难度从题库选题，响应新增 `question_ids`；评分响应新增 `scoring_mode`，取值为 `llm` 或 `local_fallback`。
 
 ---
 

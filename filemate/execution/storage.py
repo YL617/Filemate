@@ -284,6 +284,22 @@ CREATE INDEX IF NOT EXISTS idx_wrong_next_review
     ON wrong_questions(mastered, next_review_at);
 """
 
+_INTERVIEW_BANK_SCHEMA = """\
+CREATE TABLE IF NOT EXISTS interview_questions (
+    id          TEXT PRIMARY KEY,
+    scenario    TEXT NOT NULL,
+    difficulty  TEXT NOT NULL,
+    text        TEXT NOT NULL,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now')),
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now')),
+    UNIQUE(scenario, difficulty, text)
+);
+
+CREATE INDEX IF NOT EXISTS idx_interview_questions_filter
+    ON interview_questions(scenario, difficulty, enabled);
+"""
+
 _MIGRATIONS = (
     (1, "initial_execution_schema", _SCHEMA),
     (2, "knowledge_persistence", _KNOWLEDGE_SCHEMA),
@@ -293,6 +309,7 @@ _MIGRATIONS = (
     (6, "persistent_study_plans", _STUDY_PLAN_SCHEMA),
     (7, "anonymous_product_feedback", _PRODUCT_FEEDBACK_SCHEMA),
     (8, "spaced_repetition", _SPACED_REPETITION_SCHEMA),
+    (9, "interview_question_bank", _INTERVIEW_BANK_SCHEMA),
 )
 
 
@@ -311,6 +328,7 @@ _ALLOWED_EXECUTION_COLS = {
     "applied_at",
     "undone_at",
 }
+_ALLOWED_INTERVIEW_QUESTION_COLS = {"scenario", "difficulty", "text", "enabled"}
 
 
 def _now_iso() -> str:
@@ -1285,6 +1303,136 @@ class SQLiteStorage:
             )
             connection.commit()
         return self.get_interview(interview_id)
+
+    # ------------------------------------------------------------------
+    # 面试题库
+    # ------------------------------------------------------------------
+
+    def list_interview_questions(
+        self,
+        *,
+        scenario: str | None = None,
+        difficulty: str | None = None,
+        enabled: bool | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if scenario:
+            clauses.append("scenario=?")
+            params.append(scenario)
+        if difficulty:
+            clauses.append("difficulty=?")
+            params.append(difficulty)
+        if enabled is not None:
+            clauses.append("enabled=?")
+            params.append(int(enabled))
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        rows = self._conn().execute(
+            f"SELECT * FROM interview_questions{where} "
+            "ORDER BY scenario, difficulty, created_at LIMIT ?",
+            params + [max(1, min(int(limit), 500))],
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_interview_question(self, question_id: str) -> dict[str, Any] | None:
+        row = self._conn().execute(
+            "SELECT * FROM interview_questions WHERE id=?", (question_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def create_interview_question(
+        self,
+        *,
+        scenario: str,
+        difficulty: str,
+        text: str,
+        enabled: int = 1,
+        question_id: str | None = None,
+    ) -> str:
+        if not scenario.strip() or not difficulty.strip() or not text.strip():
+            raise ValueError("场景、难度和题目内容不能为空")
+        question_id = question_id or uuid.uuid4().hex
+        with self._write_lock:
+            conn = self._conn()
+            cur = conn.execute(
+                """INSERT OR IGNORE INTO interview_questions
+                   (id, scenario, difficulty, text, enabled)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (question_id, scenario.strip(), difficulty.strip(), text.strip(), int(enabled)),
+            )
+            if cur.rowcount == 0:
+                row = conn.execute(
+                    "SELECT id FROM interview_questions WHERE scenario=? AND difficulty=? AND text=?",
+                    (scenario.strip(), difficulty.strip(), text.strip()),
+                ).fetchone()
+                question_id = row["id"] if row else question_id
+            conn.commit()
+        return question_id
+
+    def ensure_interview_questions(
+        self, rows: list[dict[str, Any]]
+    ) -> list[str]:
+        """幂等写入种子题目，重复执行不会产生重复数据。"""
+        ids: list[str] = []
+        for row in rows:
+            ids.append(
+                self.create_interview_question(
+                    scenario=str(row["scenario"]),
+                    difficulty=str(row["difficulty"]),
+                    text=str(row["text"]),
+                    enabled=int(row.get("enabled", 1)),
+                )
+            )
+        return ids
+
+    def update_interview_question(
+        self, question_id: str, **kwargs: Any
+    ) -> bool:
+        if not kwargs:
+            return False
+        invalid = set(kwargs) - _ALLOWED_INTERVIEW_QUESTION_COLS
+        if invalid:
+            raise ValueError(
+                f"无效字段: {sorted(invalid)}，允许: {sorted(_ALLOWED_INTERVIEW_QUESTION_COLS)}"
+            )
+        set_clause = ", ".join(f"{k}=?" for k in kwargs) + ", updated_at=?"
+        values = list(kwargs.values()) + [_now_iso(), question_id]
+        try:
+            with self._write_lock:
+                conn = self._conn()
+                cur = conn.execute(
+                    f"UPDATE interview_questions SET {set_clause} WHERE id=?",
+                    values,
+                )
+                conn.commit()
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("同场景、同难度、同内容的题目已存在") from exc
+        return cur.rowcount > 0
+
+    def delete_interview_question(self, question_id: str) -> bool:
+        with self._write_lock:
+            conn = self._conn()
+            cur = conn.execute(
+                "DELETE FROM interview_questions WHERE id=?", (question_id,)
+            )
+            conn.commit()
+        return cur.rowcount > 0
+
+    def select_interview_questions(
+        self,
+        *,
+        scenario: str,
+        difficulty: str,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        rows = self._conn().execute(
+            """SELECT * FROM interview_questions
+               WHERE scenario=? AND difficulty=? AND enabled=1
+               ORDER BY created_at LIMIT ?""",
+            (scenario, difficulty, max(1, min(int(limit), 50))),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def create_study_plan(
         self,

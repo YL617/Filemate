@@ -727,6 +727,56 @@ def test_mock_interview_progresses_and_persists(
     assert "内容" in analytics["interview_dimensions"]
 
 
+def test_interview_question_bank_crud(
+    server_module: tuple[ModuleType, SQLiteStorage],
+) -> None:
+    module, _ = server_module
+    with TestClient(module.app) as client:
+        created = client.post(
+            "/interview/questions",
+            json={
+                "scenario": "求职面试",
+                "difficulty": "标准",
+                "text": "请介绍一个你解决复杂问题的经历。",
+            },
+        ).json()["data"]
+        question_id = created["id"]
+        listed = client.get("/interview/questions").json()["data"]
+        updated = client.patch(
+            f"/interview/questions/{question_id}",
+            json={"enabled": False},
+        ).json()["data"]
+        deleted = client.delete(f"/interview/questions/{question_id}").json()
+
+    assert any(item["id"] == question_id for item in listed)
+    assert updated["enabled"] == 0
+    assert deleted["success"] is True
+
+
+def test_start_interview_uses_bank_and_scoring_mode(
+    server_module: tuple[ModuleType, SQLiteStorage],
+) -> None:
+    module, storage = server_module
+    qid = storage.create_interview_question(
+        scenario="求职面试",
+        difficulty="标准",
+        text="请介绍一个你解决复杂问题的经历，并说明结果。",
+    )
+    with TestClient(module.app) as client:
+        started = client.post(
+            "/interviews",
+            json={"target_role": "后端开发", "scenario": "求职面试", "difficulty": "标准"},
+        ).json()["data"]
+        answered = client.post(
+            f"/interviews/{started['interview_id']}/answers",
+            json={"answer": "我先分析原因，再制定方案，最后完成并复盘。"},
+        ).json()["data"]
+
+    assert started["question_ids"] == [qid]
+    assert started["questions"][0] == "请介绍一个你解决复杂问题的经历，并说明结果。"
+    assert answered["latest_evaluation"]["scoring_mode"] in {"llm", "local_fallback"}
+
+
 def test_delete_source_cleans_managed_inbox_file(
     server_module: tuple[ModuleType, SQLiteStorage],
 ) -> None:
