@@ -77,6 +77,10 @@ export default defineConfig({
           }
         },
       },
+      '^/interview/questions': {
+        target: 'http://127.0.0.1:8001',
+        changeOrigin: true,
+      },
       '^/interviews': {
         target: 'http://127.0.0.1:8001',
         changeOrigin: true,
