@@ -1,11 +1,16 @@
 <template>
   <div class="classification-page">
-    <el-alert
-      title="请先在导入页面上传文件"
-      type="info"
-      :closable="false"
-      v-if="!currentFile"
-    />
+    <WorkflowSteps :current="2" />
+    <DataState v-if="sessionLoading" loading />
+    <DataState v-else-if="sessionError" :error="sessionError" @retry="loadRequestedSession" />
+    <div v-else-if="!currentFile" class="empty-action">
+      <DataState empty>
+        <el-icon><Collection /></el-icon>
+        <strong>还没有可审核的资料</strong>
+        <span>先导入一份课程资料，系统会在这里展示分类依据。</span>
+        <el-button type="primary" @click="router.push('/import')">去导入资料</el-button>
+      </DataState>
+    </div>
 
     <template v-else>
       <el-card>
@@ -49,10 +54,11 @@
               <el-button
                 type="primary"
                 style="margin-top: 12px"
+                :disabled="!selectedCategory"
                 @click="confirmCategory"
                 :loading="confirming"
               >
-                确认分类
+                保存并继续命名
               </el-button>
             </el-card>
           </el-col>
@@ -80,8 +86,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Collection } from '@element-plus/icons-vue'
 import { getHistory, getSession, updateSessionDraft } from '../services/api'
@@ -91,10 +97,13 @@ import * as echarts from 'echarts/core'
 import { PieChart } from 'echarts/charts'
 import { LegendComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import DataState from '../components/DataState.vue'
+import WorkflowSteps from '../components/WorkflowSteps.vue'
 
 echarts.use([PieChart, LegendComponent, TooltipComponent, CanvasRenderer])
 
 const route = useRoute()
+const router = useRouter()
 const fileStore = useFileStore()
 const chartRef = ref<HTMLElement>()
 let chartInstance: ReturnType<typeof echarts.init> | null = null
@@ -102,6 +111,8 @@ let chartInstance: ReturnType<typeof echarts.init> | null = null
 const currentFile = computed(() => fileStore.currentFile)
 const selectedCategory = ref<Category | ''>('')
 const confirming = ref(false)
+const sessionLoading = ref(false)
+const sessionError = ref('')
 const distribution = ref<{ name: string; value: number }[]>([])
 const chartLoading = ref(false)
 const chartError = ref('')
@@ -116,13 +127,11 @@ function handleChartResize() {
   chartInstance?.resize()
 }
 
-onMounted(() => {
-  const sessionId = route.query.session as string
-  if (sessionId) {
-    loadSession(sessionId)
-  }
+onMounted(async () => {
+  await loadRequestedSession()
+  await nextTick()
   initChart()
-  loadDistribution()
+  await loadDistribution()
   window.addEventListener('resize', handleChartResize)
 })
 
@@ -133,12 +142,21 @@ onBeforeUnmount(() => {
 })
 
 async function loadSession(sessionId: string) {
+  sessionLoading.value = true
+  sessionError.value = ''
   try {
     const session = await getSession(sessionId)
     fileStore.setCurrentFile(session)
   } catch (e) {
-    console.error('Failed to load session:', e)
+    sessionError.value = e instanceof Error ? e.message : '处理结果加载失败'
+  } finally {
+    sessionLoading.value = false
   }
+}
+
+async function loadRequestedSession() {
+  const sessionId = route.query.session as string | undefined
+  if (sessionId) await loadSession(sessionId)
 }
 
 async function confirmCategory() {
@@ -151,6 +169,7 @@ async function confirmCategory() {
     })
     fileStore.setCurrentFile(updated)
     ElMessage.success('分类已保存，确认命名后执行归档')
+    await router.push({ path: '/naming', query: { session: updated.session_id } })
   } catch (e: any) {
     ElMessage.error(e.message)
   } finally {
@@ -159,7 +178,7 @@ async function confirmCategory() {
 }
 
 function initChart() {
-  if (!chartRef.value) return
+  if (!chartRef.value || chartInstance) return
   // 只 init 一次，后续用 setOption 更新
   chartInstance = echarts.init(chartRef.value)
   updateChart()
@@ -188,13 +207,13 @@ async function loadDistribution() {
 function updateChart() {
   if (!chartRef.value || !chartInstance) return
   const colorMap: Record<string, string> = {
-    课件: '#6366f1',
-    作业: '#ec4899',
-    竞赛通知: '#10b981',
-    考试通知: '#ef4444',
-    参考资料: '#f59e0b',
-    大创通知: '#8b5cf6',
-    待确认: '#9ca3af'
+    课件: '#2f7d55',
+    作业: '#5a9875',
+    竞赛通知: '#86b69a',
+    考试通知: '#9a651d',
+    参考资料: '#6d8077',
+    大创通知: '#bfd0c3',
+    待确认: '#b44b4b'
   }
   const data = distribution.value.map(d => ({
     ...d,
@@ -238,7 +257,7 @@ function updateChart() {
           itemStyle: {
             shadowBlur: 20,
             shadowOffsetX: 0,
-            shadowColor: 'rgba(16, 185, 129, 0.4)'
+            shadowColor: 'rgba(47, 125, 85, 0.24)'
           },
           label: {
             show: true,
@@ -275,8 +294,21 @@ function updateChart() {
 }
 
 .confidence {
-  color: #888;
+  color: var(--text-muted);
   font-size: 14px;
+}
+
+.empty-action :deep(.data-state) {
+  min-height: 300px;
+}
+
+.empty-action :deep(.el-icon) {
+  color: var(--accent);
+  font-size: 34px;
+}
+
+.empty-action :deep(strong) {
+  color: var(--text-primary);
 }
 
 .chart-wrap {

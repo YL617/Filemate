@@ -11,7 +11,15 @@
         </div>
       </template>
 
-      <div class="history-table">
+      <DataState v-if="error" :error="error" @retry="loadHistory" />
+      <DataState v-else-if="!loading && history.length === 0" empty>
+        <el-icon class="history-empty-icon"><Document /></el-icon>
+        <strong>还没有处理记录</strong>
+        <span>导入并确认第一份资料后，执行与撤销记录会显示在这里。</span>
+        <el-button type="primary" @click="router.push('/import')">导入第一份资料</el-button>
+      </DataState>
+
+      <div v-else class="history-table">
         <el-table :data="history" v-loading="loading" stripe>
           <el-table-column prop="session_id" label="ID" width="100" />
           <el-table-column label="文件" min-width="200">
@@ -55,7 +63,7 @@
       </div>
 
       <!-- 移动端卡片列表（<768px 显示） -->
-      <div class="history-cards" v-loading="loading">
+      <div v-if="!error && (loading || history.length)" class="history-cards" v-loading="loading">
         <p v-if="!loading && history.length === 0" class="cards-empty">暂无处理记录</p>
         <article v-for="row in history" :key="row.session_id" class="history-card">
           <div class="card-top">
@@ -102,12 +110,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { getHistory, getSession, undoSession } from '../services/api'
 import { useFileStore } from '../stores/fileStore'
 import type { HistoryItem } from '../types'
+import DataState from '../components/DataState.vue'
 
 const router = useRouter()
 const fileStore = useFileStore()
 const history = ref<HistoryItem[]>([])
 const loading = ref(false)
 const undoingId = ref('')
+const error = ref('')
 
 onMounted(() => {
   loadHistory()
@@ -115,10 +125,12 @@ onMounted(() => {
 
 async function loadHistory() {
   loading.value = true
+  error.value = ''
   try {
     history.value = await getHistory(undefined, 50)
   } catch (e: any) {
-    ElMessage.error(`加载失败: ${e.message}`)
+    error.value = e?.message || '处理记录加载失败'
+    ElMessage.error(`加载失败: ${error.value}`)
   } finally {
     loading.value = false
   }
@@ -221,14 +233,13 @@ async function undoExecution(row: HistoryItem) {
   gap: 8px;
 }
 
-/* 表格样式统一为暗色主题 */
 :deep(.el-table) {
-  --el-table-bg-color: #16161e;
-  --el-table-tr-bg-color: #16161e;
-  --el-table-header-bg-color: #1a1a24;
-  --el-table-row-hover-bg-color: rgba(16, 185, 129, 0.08);
-  --el-table-border-color: rgba(255, 255, 255, 0.06);
-  --el-table-text-color: #a1a1aa;
+  --el-table-bg-color: var(--bg-surface);
+  --el-table-tr-bg-color: var(--bg-surface);
+  --el-table-header-bg-color: var(--bg-elevated);
+  --el-table-row-hover-bg-color: var(--bg-hover);
+  --el-table-border-color: var(--border-subtle);
+  --el-table-text-color: var(--text-secondary);
   --el-table-header-text-color: #71717a;
 }
 
@@ -246,12 +257,17 @@ async function undoExecution(row: HistoryItem) {
 }
 
 :deep(.el-table th.el-table__cell) {
-  background: #1a1a24 !important;
-  border-bottom-color: rgba(255, 255, 255, 0.06);
+  background: var(--bg-elevated) !important;
+  border-bottom-color: var(--border-subtle);
 }
 
 :deep(.el-table__body tr:hover > td.el-table__cell) {
-  background: rgba(16, 185, 129, 0.08) !important;
+  background: var(--bg-hover) !important;
+}
+
+.history-empty-icon {
+  color: var(--accent);
+  font-size: 34px;
 }
 
 /* 分页样式 */

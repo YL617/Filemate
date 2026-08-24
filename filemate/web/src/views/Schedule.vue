@@ -1,5 +1,6 @@
 <template>
   <div class="schedule-page">
+    <WorkflowSteps :current="4" />
     <el-alert
       title="请先在导入页面上传文件"
       type="info"
@@ -56,7 +57,7 @@
       </el-card>
 
       <!-- ECharts 时间轴图表 -->
-      <el-card style="margin-top: 20px">
+      <el-card v-if="milestones.length" style="margin-top: 20px">
         <template #header>
           <span>可视化时间轴</span>
         </template>
@@ -67,7 +68,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { Download, Calendar, Clock, Upload } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -79,6 +80,7 @@ import type { Milestone } from '../types'
 import { useFileStore } from '../stores/fileStore'
 import { getSession, getIcsContent, downloadIcs as downloadIcsApi } from '../services/api'
 import DataState from '../components/DataState.vue'
+import WorkflowSteps from '../components/WorkflowSteps.vue'
 
 echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer])
 
@@ -94,9 +96,12 @@ const currentFile = computed(() => fileStore.currentFile)
 watch(currentFile, (file) => {
   if (file?.milestones) {
     milestones.value = file.milestones
-    updateChart()
+    nextTick(() => {
+      initChart()
+      updateChart()
+    })
   }
-})
+}, { immediate: true })
 
 function handleChartResize() {
   chartInstance?.resize()
@@ -116,6 +121,7 @@ async function loadSession() {
 
 onMounted(async () => {
   await loadSession()
+  await nextTick()
   initChart()
   window.addEventListener('resize', handleChartResize)
 })

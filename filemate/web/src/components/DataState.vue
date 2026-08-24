@@ -15,7 +15,7 @@
   - empty 时展示 empty-text 或 default slot 里的空态内容。
 -->
 <template>
-  <div v-if="loading" class="data-state" role="status">
+  <div v-if="loading" class="data-state" role="status" aria-live="polite">
     <span class="spinner" aria-hidden="true"></span>
     <span>加载中…</span>
   </div>
@@ -52,7 +52,7 @@ defineEmits<{ retry: [] }>()
   text-align: center;
   color: var(--text-muted);
   background: var(--bg-surface);
-  border: 1px dashed var(--border-default);
+  border: 1px dashed var(--border-subtle);
   border-radius: 14px;
 }
 

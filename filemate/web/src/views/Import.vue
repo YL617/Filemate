@@ -5,6 +5,7 @@
 -->
 <template>
   <div class="import-page">
+    <WorkflowSteps :current="1" />
     <h2 class="page-title"><el-icon><Upload /></el-icon> 导入文件</h2>
 
     <!-- Upload Zone -->
@@ -23,7 +24,7 @@
         type="file"
         :disabled="isUploading"
         multiple
-        accept=".doc,.docx,.pdf,.ppt,.pptx,.txt,.jpg,.png"
+        accept=".doc,.docx,.pdf,.ppt,.pptx,.txt"
         @change="handleFileSelect"
         hidden
       />
@@ -91,10 +92,14 @@
           :style="{ '--delay': index * 0.05 + 's' }"
           :class="{ 'animate-in': true }"
         >
-          <div class="queue-icon">{{ getFileIcon(item.name) }}</div>
+          <div class="queue-icon" aria-hidden="true">
+            <el-icon><Document /></el-icon>
+            <small>{{ getFileExtension(item.name) }}</small>
+          </div>
           <div class="queue-info">
             <div class="queue-name">{{ item.name }}</div>
             <div class="queue-size">{{ formatSize(item.size) }}</div>
+            <div v-if="item.error" class="queue-error" role="alert">{{ item.error }}</div>
           </div>
           <div class="queue-status">
             <span class="status-badge" :class="'status-' + item.status">
@@ -102,6 +107,13 @@
             </span>
           </div>
           <div class="queue-actions">
+            <button
+              v-if="item.status === 'success' && item.session"
+              class="action-btn review"
+              @click.stop="reviewResult(item.session)"
+            >
+              审核结果
+            </button>
             <button
               v-if="item.status === 'error'"
               class="action-btn"
@@ -123,13 +135,13 @@
 
     <!-- Tips -->
     <div class="tips-card">
-      <div class="tips-icon">💡</div>
+      <div class="tips-icon" aria-hidden="true"><el-icon><InfoFilled /></el-icon></div>
       <div class="tips-content">
         <h4>使用提示</h4>
         <ul>
-          <li>支持批量上传多个文件</li>
+          <li>支持批量上传，每个文件最大 25 MB</li>
           <li>上传后自动进行分类、命名和日程提取</li>
-          <li>处理完成后可在"分类预览"查看结果</li>
+          <li>处理完成后点击“审核结果”，确认后才会归档文件</li>
         </ul>
       </div>
     </div>
@@ -138,9 +150,16 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Upload, FolderOpened, Document, List } from '@element-plus/icons-vue'
+import { Upload, FolderOpened, Document, InfoFilled, List } from '@element-plus/icons-vue'
 import { uploadFile } from '../services/api'
+import WorkflowSteps from '../components/WorkflowSteps.vue'
+import { useFileStore } from '../stores/fileStore'
+import type { ProcessingSession } from '../types'
+
+const router = useRouter()
+const fileStore = useFileStore()
 
 const fileInput = ref<HTMLInputElement>()
 const isDragover = ref(false)
@@ -154,17 +173,13 @@ const uploadQueue = ref<Array<{
   size: number
   status: 'pending' | 'uploading' | 'success' | 'error'
   error?: string
+  session?: ProcessingSession
 }>>([])
 
-const formats = ['DOC', 'DOCX', 'PDF', 'PPT', 'PPTX', 'TXT', 'JPG', 'PNG']
-
-const progressColors = [
-  { color: '#10b981', percentage: 20 },
-  { color: '#059669', percentage: 40 },
-  { color: '#34d399', percentage: 60 },
-  { color: '#6ee7b7', percentage: 80 },
-  { color: '#22c55e', percentage: 100 }
-]
+const formats = ['DOC', 'DOCX', 'PDF', 'PPT', 'PPTX', 'TXT']
+const supportedExtensions = new Set(formats.map(format => `.${format.toLowerCase()}`))
+const maxUploadBytes = 25 * 1024 * 1024
+const progressColors = [{ color: '#2f7d55', percentage: 100 }]
 
 const triggerFileInput = () => {
   fileInput.value?.click()
@@ -197,6 +212,19 @@ const handleFileSelect = (e: Event) => {
 
 const addToQueue = (files: File[]) => {
   for (const file of files) {
+    const extension = `.${file.name.split('.').pop()?.toLowerCase() || ''}`
+    if (!supportedExtensions.has(extension)) {
+      ElMessage.warning(`“${file.name}”格式不支持`)
+      continue
+    }
+    if (file.size > maxUploadBytes) {
+      ElMessage.warning(`“${file.name}”超过 25 MB`)
+      continue
+    }
+    if (file.size === 0) {
+      ElMessage.warning(`“${file.name}”内容为空`)
+      continue
+    }
     uploadQueue.value.push({
       file,
       name: file.name,
@@ -212,24 +240,21 @@ const processQueue = async () => {
   if (!pending || isUploading.value) return
 
   isUploading.value = true
-  uploadProgress.value = 0
+  uploadProgress.value = 5
   uploadingFileName.value = pending.name
   pending.status = 'uploading'
 
   try {
-    const progressInterval = setInterval(() => {
-      if (uploadProgress.value < 90) {
-        uploadProgress.value += Math.random() * 18
-      }
-    }, 180)
-
-    await uploadFile(pending.file)
-
-    clearInterval(progressInterval)
+    const session = await uploadFile(pending.file, percentage => {
+      uploadProgress.value = Math.max(5, percentage)
+    })
     uploadProgress.value = 100
     pending.status = 'success'
+    pending.session = session
+    fileStore.updateFile(session)
+    fileStore.setCurrentFile(session)
 
-    ElMessage.success(`文件 "${pending.name}" 处理完成！`)
+    ElMessage.success(`“${pending.name}”处理完成，请审核分类与命名`)
 
     setTimeout(() => {
       isUploading.value = false
@@ -257,6 +282,11 @@ const removeFromQueue = (index: number) => {
   uploadQueue.value.splice(index, 1)
 }
 
+const reviewResult = (session: ProcessingSession) => {
+  fileStore.setCurrentFile(session)
+  router.push({ path: '/classification', query: { session: session.session_id } })
+}
+
 const uploadFromClipboard = async () => {
   try {
     const items = await navigator.clipboard.read()
@@ -268,9 +298,10 @@ const uploadFromClipboard = async () => {
     const files: File[] = []
     for (const item of items) {
       for (const type of item.types) {
-        if (type.startsWith('image/') || type.includes('pdf')) {
+        if (type.includes('pdf') || type === 'text/plain') {
           const blob = await item.getType(type)
-          const file = new File([blob], `clipboard_${Date.now()}.${type.split('/')[1]}`, { type })
+          const extension = type.includes('pdf') ? 'pdf' : 'txt'
+          const file = new File([blob], `clipboard_${Date.now()}.${extension}`, { type })
           files.push(file)
         }
       }
@@ -286,14 +317,7 @@ const uploadFromClipboard = async () => {
   }
 }
 
-const getFileIcon = (name: string) => {
-  const ext = name.split('.').pop()?.toLowerCase() || ''
-  const icons: Record<string, string> = {
-    doc: '📄', docx: '📄', pdf: '📕', ppt: '📊', pptx: '📊',
-    txt: '📝', jpg: '🖼️', png: '🖼️', gif: '🖼️'
-  }
-  return icons[ext] || '📁'
-}
+const getFileExtension = (name: string) => name.split('.').pop()?.toUpperCase() || 'FILE'
 
 const formatSize = (bytes: number) => {
   if (bytes < 1024) return bytes + ' B'
@@ -392,8 +416,8 @@ const getStatusText = (status: string) => {
 }
 
 .upload-zone.is-dragover {
-  border-color: #10b981;
-  background: rgba(16, 185, 129, 0.06);
+  border-color: var(--accent);
+  background: var(--accent-soft);
   border-style: solid;
   transform: scale(1.01);
 }
@@ -457,9 +481,9 @@ const getStatusText = (status: string) => {
 }
 
 .format-tag:hover {
-  background: rgba(99, 102, 241, 0.1);
-  border-color: rgba(99, 102, 241, 0.2);
-  color: #6ee7b7;
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent);
 }
 
 /* Uploading State */
@@ -552,7 +576,7 @@ const getStatusText = (status: string) => {
   align-items: center;
   gap: 10px;
   padding: 14px 32px;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background: var(--accent);
   border: none;
   border-radius: var(--radius-md);
   color: #fff;
@@ -563,12 +587,13 @@ const getStatusText = (status: string) => {
     transform var(--transition-fast),
     box-shadow var(--transition-fast),
     background var(--transition-fast);
-  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+  box-shadow: none;
 }
 
 .btn-primary:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(16, 185, 129, 0.4);
+  background: var(--accent-hover);
+  box-shadow: 0 6px 18px rgba(47, 125, 85, 0.16);
 }
 
 .btn-primary:active:not(:disabled) {
@@ -678,7 +703,22 @@ const getStatusText = (status: string) => {
 }
 
 .queue-item .queue-icon {
-  font-size: 24px;
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  gap: 1px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  font-size: 19px;
+}
+
+.queue-item .queue-icon small {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 800;
 }
 
 .queue-item .queue-info {
@@ -720,8 +760,8 @@ const getStatusText = (status: string) => {
 }
 
 .status-badge.status-uploading {
-  background: rgba(99, 102, 241, 0.1);
-  color: #6ee7b7;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .status-badge.status-success {
@@ -737,6 +777,18 @@ const getStatusText = (status: string) => {
 .queue-actions {
   display: flex;
   gap: 8px;
+}
+
+.queue-error {
+  margin-top: 4px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.action-btn.review {
+  color: #ffffff;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .action-btn {
@@ -775,20 +827,21 @@ const getStatusText = (status: string) => {
   display: flex;
   gap: 16px;
   padding: 20px 24px;
-  background: rgba(99, 102, 241, 0.04);
-  border: 1px solid rgba(99, 102, 241, 0.12);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
   border-radius: var(--radius-md);
   animation: fadeUp 0.4s ease-out 0.3s backwards;
 }
 
 .tips-icon {
-  font-size: 20px;
+  color: var(--accent);
+  font-size: 22px;
 }
 
 .tips-content h4 {
   font-size: 14px;
   font-weight: 600;
-  color: #6ee7b7;
+  color: var(--accent);
   margin: 0 0 8px;
 }
 
