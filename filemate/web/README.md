@@ -11,11 +11,19 @@ npm run dev
 
 另开一个终端，在仓库根目录运行 `uv run filemate-server`。浏览器开发环境通过 Vite 代理访问后端。
 
-Windows 用户也可以直接从仓库根目录执行：
+Windows 用户推荐直接从仓库根目录执行；命令会检查环境、启动 FastAPI 与 Vue，并打开操作页面：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/dev.ps1 -Setup
 ```
+
+首次安装完成后，后续启动可省略 `-Setup`：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/dev.ps1
+```
+
+页面地址为 `http://127.0.0.1:5173`，后端接口文档为 `http://127.0.0.1:8001/docs`。若页面顶部显示“本地服务尚未连接”，先运行上述启动命令，再点击“重新检查”。
 
 ## 桌面开发与打包（最终发布阶段）
 

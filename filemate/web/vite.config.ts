@@ -59,8 +59,7 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
         bypass(req) {
-          const url = req.url ?? ''
-          if (url === '/knowledge' || url.startsWith('/knowledge?')) {
+          if (req.headers.accept?.includes('text/html')) {
             return '/index.html'
           }
         },
@@ -73,8 +72,7 @@ export default defineConfig({
         target: 'http://127.0.0.1:8001',
         changeOrigin: true,
         bypass(req) {
-          const url = req.url ?? ''
-          if (url === '/wrongbook' || url.startsWith('/wrongbook?')) {
+          if (req.headers.accept?.includes('text/html')) {
             return '/index.html'
           }
         },
@@ -84,6 +82,18 @@ export default defineConfig({
         changeOrigin: true,
       },
       '^/analytics': {
+        target: 'http://127.0.0.1:8001',
+        changeOrigin: true,
+      },
+      '^/review': {
+        target: 'http://127.0.0.1:8001',
+        changeOrigin: true,
+      },
+      '^/study-plans': {
+        target: 'http://127.0.0.1:8001',
+        changeOrigin: true,
+      },
+      '^/evaluation': {
         target: 'http://127.0.0.1:8001',
         changeOrigin: true,
       },
