@@ -78,6 +78,23 @@ def test_generate_questions_normalizes_and_deduplicates() -> None:
     assert questions[0]["subject"] == "数学"
 
 
+class _FakeLLMClient:
+    def call(self, **kwargs):
+        return '[{"stem": "1+1=?", "answer": "2", "question_type": "choice"}]'
+
+
+def test_generate_questions_accepts_llm_client_object() -> None:
+    questions = generate_questions_with_llm(
+        _FakeLLMClient(),
+        "Math",
+        "Addition",
+        count=1,
+        question_type="choice",
+    )
+    assert len(questions) == 1
+    assert questions[0]["stem"] == "1+1=?"
+
+
 def test_check_answer_handles_choice_fill_and_short_answer() -> None:
     assert check_answer({"question_type": "choice", "answer": "A"}, "A. 结合律")
     assert not check_answer({"question_type": "choice", "answer": "A"}, "")
