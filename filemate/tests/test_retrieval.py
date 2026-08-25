@@ -73,6 +73,15 @@ def test_rank_chunks_chinese_tokenization() -> None:
     assert "资源" in results[0]["content"]
 
 
+def test_rank_chunks_keeps_single_character_query_recall() -> None:
+    chunks = split_document("栈是后进先出的数据结构，队列是先进先出的数据结构。", chunk_size=200)
+
+    results = rank_chunks("栈", chunks)
+
+    assert results
+    assert "栈" in results[0]["content"]
+
+
 def test_rank_chunks_preserves_metadata() -> None:
     chunks = split_document(
         "--- 第 3 页 ---\n内存管理是操作系统核心功能。",

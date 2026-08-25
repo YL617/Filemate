@@ -1102,3 +1102,170 @@ def test_ai_questions_uses_generate_questions_with_llm(
     assert calls["args"]["question_type"] == "choice"
     assert calls["args"]["count"] == 1
     assert persisted["artifact_type"] == "questions"
+
+
+def test_ai_questions_distributes_requested_count_across_types(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """多题型生成应分配余数，不能因整除少生成题目。"""
+    import filemate.llm_client as llm_module
+    import filemate.perception as perception_module
+    import filemate.study as study_module
+
+    module, _ = server_module
+    requested: list[tuple[str, int]] = []
+
+    class FakeConfig:
+        @classmethod
+        def from_env(cls) -> FakeConfig:
+            return cls()
+
+    class FakeLLM:
+        def __init__(self, config: FakeConfig) -> None:
+            self.config = config
+
+    class FakeParser:
+        def parse(self, path: str) -> dict[str, Any]:
+            return {"raw_text": "用于匿名测试的课程内容。"}
+
+    def fake_generate(**kwargs: Any) -> list[dict[str, Any]]:
+        question_type = str(kwargs["question_type"])
+        count = int(kwargs["count"])
+        requested.append((question_type, count))
+        return [
+            {
+                "question_type": question_type,
+                "stem": f"{question_type}-{index}",
+                "answer": "A",
+            }
+            for index in range(count)
+        ]
+
+    monkeypatch.setattr(llm_module, "LLMConfig", FakeConfig)
+    monkeypatch.setattr(llm_module, "LLMClient", FakeLLM)
+    monkeypatch.setattr(perception_module, "FileParser", FakeParser)
+    monkeypatch.setattr(study_module, "generate_questions_with_llm", fake_generate)
+    monkeypatch.setattr(
+        module,
+        "_persist_ai_context",
+        lambda **kwargs: ("ctx", "source", "artifact"),
+    )
+
+    with TestClient(module.app) as client:
+        response = client.post(
+            "/ai/questions",
+            files={"file": ("课程.txt", b"content", "text/plain")},
+            data={"question_types": "choice,fill", "num_questions": "5"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["questions_count"] == 5
+    assert requested == [("choice", 3), ("fill", 2)]
+
+
+def test_ai_questions_does_not_persist_empty_generation(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """所有模型调用失败时应返回 502，不能保存空题集并误报成功。"""
+    import filemate.llm_client as llm_module
+    import filemate.perception as perception_module
+    import filemate.study as study_module
+
+    module, _ = server_module
+
+    class FakeConfig:
+        @classmethod
+        def from_env(cls) -> FakeConfig:
+            return cls()
+
+    class FakeLLM:
+        def __init__(self, config: FakeConfig) -> None:
+            self.config = config
+
+    class FakeParser:
+        def parse(self, path: str) -> dict[str, Any]:
+            return {"raw_text": "用于匿名测试的课程内容。"}
+
+    def fail_generation(**kwargs: Any) -> list[dict[str, Any]]:
+        raise RuntimeError("模拟模型不可用")
+
+    monkeypatch.setattr(llm_module, "LLMConfig", FakeConfig)
+    monkeypatch.setattr(llm_module, "LLMClient", FakeLLM)
+    monkeypatch.setattr(perception_module, "FileParser", FakeParser)
+    monkeypatch.setattr(study_module, "generate_questions_with_llm", fail_generation)
+
+    persisted = False
+
+    def fail_if_persisted(**kwargs: Any) -> tuple[str, str, str]:
+        nonlocal persisted
+        persisted = True
+        return ("ctx", "source", "artifact")
+
+    monkeypatch.setattr(module, "_persist_ai_context", fail_if_persisted)
+
+    with TestClient(module.app) as client:
+        response = client.post(
+            "/ai/questions",
+            files={"file": ("课程.txt", b"content", "text/plain")},
+            data={"question_types": "choice,fill", "num_questions": "5"},
+        )
+
+    assert response.status_code == 502
+    assert response.json()["success"] is False
+    assert persisted is False
+
+
+def test_ai_questions_surfaces_parser_error(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AI 出题应保留加密/损坏文件的可操作错误信息。"""
+    import filemate.perception as perception_module
+
+    module, _ = server_module
+
+    class FakeParser:
+        def parse(self, path: str) -> dict[str, Any]:
+            return {
+                "raw_text": "",
+                "metadata": {"encrypted": True},
+                "error": "PDF 已加密，请先解密后重新上传",
+            }
+
+    monkeypatch.setattr(perception_module, "FileParser", FakeParser)
+
+    with TestClient(module.app) as client:
+        response = client.post(
+            "/ai/questions",
+            files={"file": ("encrypted.pdf", b"encrypted", "application/pdf")},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "PDF 已加密，请先解密后重新上传"
+
+
+def test_quiz_attempt_rejects_malformed_question_artifact(
+    server_module: tuple[ModuleType, SQLiteStorage],
+) -> None:
+    """损坏的题目 Artifact 应返回 422，而不是触发服务端 500。"""
+    module, storage = server_module
+    artifact_id = storage.save_artifact(
+        artifact_type="questions",
+        title="损坏题集",
+        content=["not-a-question"],
+    )
+
+    with TestClient(module.app) as client:
+        response = client.post(
+            "/quiz/attempts",
+            json={
+                "artifact_id": artifact_id,
+                "question_index": 0,
+                "user_answer": "A",
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "题目数据格式无效"

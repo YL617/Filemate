@@ -825,7 +825,7 @@ async def ai_knowledge_cards(
 async def ai_questions(
     file: Annotated[UploadFile, File()],
     question_types: Annotated[str | None, Form()] = None,
-    num_questions: Annotated[int, Form()] = 10,
+    num_questions: Annotated[int, Form(ge=1, le=30)] = 10,
 ):
     """AI题目提取：上传PDF/文档，提取练习题目。"""
     file_path, _ = await _save_upload(file)
@@ -836,6 +836,8 @@ async def ai_questions(
         from filemate.perception import FileParser
         parser = FileParser()
         parsed = parser.parse(str(file_path))
+        if parsed.get("error"):
+            raise HTTPException(status_code=422, detail=str(parsed["error"]))
         text = parsed.get("raw_text", "")
 
         if not text.strip():
@@ -876,23 +878,32 @@ async def ai_questions(
         chunks = chunk_text(text, chunk_size=800, overlap=100)
 
         all_questions: list[dict[str, Any]] = []
-        types_to_generate = [_map_type(t) for t in types_list] if types_list else ["choice"]
-        per_type = max(1, min(num_questions // max(len(types_to_generate), 1), 10))
-        for qtype in types_to_generate:
+        requested_types = [_map_type(t) for t in types_list] if types_list else ["choice"]
+        types_to_generate = list(dict.fromkeys(requested_types))
+        per_type, remainder = divmod(num_questions, len(types_to_generate))
+        generation_errors: list[str] = []
+        for index, qtype in enumerate(types_to_generate):
+            requested_count = per_type + (1 if index < remainder else 0)
+            if requested_count == 0:
+                continue
             try:
                 batch = generate_questions_with_llm(
                     llm=llm,
                     subject=subject,
                     knowledge_point=knowledge_point,
-                    count=per_type,
+                    count=requested_count,
                     question_type=qtype,
                     context=chunks,
                 )
                 all_questions.extend(batch)
-            except RuntimeError:
+            except RuntimeError as exc:
+                generation_errors.append(str(exc))
                 continue
 
-        questions = all_questions[:num_questions] if all_questions else []
+        if not all_questions:
+            logger.warning("AI 题目生成无有效结果: %s", generation_errors)
+            raise HTTPException(status_code=502, detail="AI 题目生成失败")
+        questions = all_questions[:num_questions]
 
         ctx_id, source_id, artifact_id = _persist_ai_context(
             file_path=file_path,
@@ -1151,7 +1162,10 @@ def submit_quiz_attempt(request: QuizAttemptRequest):
             mapped["stem"] = q["question"]
         return mapped
 
-    question = _normalize_question(questions[request.question_index])
+    raw_question = questions[request.question_index]
+    if not isinstance(raw_question, dict):
+        raise HTTPException(status_code=422, detail="题目数据格式无效")
+    question = _normalize_question(raw_question)
     user_answer = (request.user_answer or "").strip()
 
     from filemate.study import check_answer
