@@ -1,4 +1,5 @@
 """FastAPI 持久化链路回归测试。"""
+
 from __future__ import annotations
 
 import importlib
@@ -15,6 +16,7 @@ from fastapi.testclient import TestClient
 from starlette.datastructures import UploadFile
 from starlette.requests import Request
 
+from filemate.core.session import ProcessingSession, SessionStatus
 from filemate.execution.storage import SQLiteStorage
 
 
@@ -47,6 +49,43 @@ def server_module(
         current_storage.close()
     storage.close()
     sys.modules.pop("server", None)
+
+
+def test_process_endpoint_reports_stage_failure(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """阶段失败必须通过统一响应返回，不能误报 success=true。"""
+    module, _ = server_module
+    main_module = importlib.import_module("main")
+
+    async def failed_process_single(
+        file_path: str,
+        *,
+        skip_calendar: bool,
+        db_path: str,
+    ) -> ProcessingSession:
+        del skip_calendar, db_path
+        return ProcessingSession(
+            session_id="failed-session",
+            source_path=file_path,
+            status=SessionStatus.FAILED,
+            error="parse 失败: PDF 已加密",
+        )
+
+    monkeypatch.setattr(main_module, "process_single", failed_process_single)
+
+    with TestClient(module.app) as client:
+        response = client.post(
+            "/process",
+            files={"file": ("encrypted.pdf", b"encrypted", "application/pdf")},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is False
+    assert payload["error"] == "parse 失败: PDF 已加密"
+    assert payload["data"]["status"] == "failed"
 
 
 def test_ai_context_and_artifact_survive_reopen(
@@ -157,9 +196,7 @@ def test_cors_allows_local_frontend_but_not_arbitrary_origins(
         },
     )
     assert allowed.status_code == 200
-    assert allowed.headers["access-control-allow-origin"] == (
-        "http://127.0.0.1:4173"
-    )
+    assert allowed.headers["access-control-allow-origin"] == ("http://127.0.0.1:4173")
 
     rejected = client.options(
         "/",

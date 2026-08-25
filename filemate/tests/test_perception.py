@@ -5,6 +5,7 @@
 - TestReal* — 集成测试（datasets/raw/ 真实文件），用 @pytest.mark.skipif 按数据集有无自动跳过
 - TestFileWatcher — 目录监控单元测试
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -37,10 +38,7 @@ def _real_files(suffix: str, max_count: int = 5) -> list[Path]:
     if not DATASETS_DIR.is_dir():
         return []
     suffix_lower = suffix.lstrip(".").lower()
-    files = sorted(
-        f for f in DATASETS_DIR.glob(f"*.{suffix_lower}")
-        if f.stat().st_size > 0
-    )
+    files = sorted(f for f in DATASETS_DIR.glob(f"*.{suffix_lower}") if f.stat().st_size > 0)
     return files[:max_count]
 
 
@@ -48,6 +46,7 @@ def _paddleocr_available() -> bool:
     """PaddleOCR 是否已安装（OCR 为可选依赖）。"""
     try:
         import paddleocr  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -59,6 +58,7 @@ _PADDLEOCR_INSTALLED = _paddleocr_available()
 def _pytest_asyncio_available() -> bool:
     try:
         import pytest_asyncio  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -71,6 +71,7 @@ _PYTEST_ASYNCIO_INSTALLED = _pytest_asyncio_available()
 #  Fixtures
 # ──────────────────────────────────────────────
 
+
 @pytest.fixture()
 def parser() -> FileParser:
     return FileParser()
@@ -79,6 +80,7 @@ def parser() -> FileParser:
 # ──────────────────────────────────────────────
 #  FileParser 契约
 # ──────────────────────────────────────────────
+
 
 class TestFileParserContract:
     """验证 FileParser.parse() 输出格式符合契约。"""
@@ -123,11 +125,13 @@ class TestFileParserContract:
 
         class _FakeParser:
             """返回超长文本的假解析器。"""
+
             def parse(self, path):
                 return {"raw_text": "字" * 600_000, "metadata": {"suffix": "txt"}}
 
         # 临时注册假解析器
         from filemate.perception import parsers as parsers_mod
+
         parsers_mod._REGISTRY["txt"] = _FakeParser
         try:
             p = tmp_path / "huge.txt"
@@ -142,24 +146,29 @@ class TestFileParserContract:
 #  解析器注册
 # ──────────────────────────────────────────────
 
+
 class TestParserRegistry:
     def test_docx_registered(self) -> None:
         from filemate.perception.parsers import get_parser
+
         inst = get_parser("docx")
         assert type(inst).__name__ == "WordParser"
 
     def test_pdf_registered(self) -> None:
         from filemate.perception.parsers import get_parser
+
         inst = get_parser("pdf")
         assert type(inst).__name__ == "PDFParser"
 
     def test_pptx_registered(self) -> None:
         from filemate.perception.parsers import get_parser
+
         inst = get_parser("pptx")
         assert type(inst).__name__ == "PPTParser"
 
     def test_unknown_raises(self) -> None:
         from filemate.perception.parsers import get_parser
+
         with pytest.raises(ValueError, match="不支持的格式"):
             get_parser("xyz")
 
@@ -172,11 +181,10 @@ class TestParserRegistry:
 class TestRealWordParser:
     """用 datasets/raw/ 中的真实 .docx 文件验证 WordParser。"""
 
-    @pytest.mark.skipif(
-        not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在"
-    )
+    @pytest.mark.skipif(not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在")
     def test_parse_returns_valid_structure(
-        self, parser: FileParser,
+        self,
+        parser: FileParser,
     ) -> None:
         """任意真实 .docx 的输出必须包含 raw_text / metadata / suffix="docx"。"""
         files = _real_files("docx", max_count=3)
@@ -184,15 +192,11 @@ class TestRealWordParser:
             pytest.skip("没有可用的 .docx 测试文件")
         for f in files:
             result = parser.parse(f)
-            assert "error" not in result, (
-                f"{f.name} 解析失败: {result.get('error')}"
-            )
+            assert "error" not in result, f"{f.name} 解析失败: {result.get('error')}"
             assert isinstance(result["raw_text"], str)
             assert result["metadata"]["suffix"] == "docx"
 
-    @pytest.mark.skipif(
-        not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在"
-    )
+    @pytest.mark.skipif(not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在")
     def test_text_not_empty(self, parser: FileParser) -> None:
         """真实 .docx 应提取出有意义的文本（非空）。"""
         files = _real_files("docx", max_count=5)
@@ -205,9 +209,7 @@ class TestRealWordParser:
                 non_empty += 1
         assert non_empty > 0, f"{len(files)} 个 .docx 全部返回空文本"
 
-    @pytest.mark.skipif(
-        not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在"
-    )
+    @pytest.mark.skipif(not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在")
     def test_metadata_complete(self, parser: FileParser) -> None:
         """metadata 必须包含 filename / suffix / size_bytes 三个字段。"""
         files = _real_files("docx", max_count=1)
@@ -224,11 +226,10 @@ class TestRealWordParser:
 class TestRealPDFParser:
     """用 datasets/raw/ 中的真实 .pdf 文件验证 PDFParser。"""
 
-    @pytest.mark.skipif(
-        not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在"
-    )
+    @pytest.mark.skipif(not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在")
     def test_parse_returns_valid_structure(
-        self, parser: FileParser,
+        self,
+        parser: FileParser,
     ) -> None:
         """任意真实 .pdf 的输出必须包含 raw_text / metadata / suffix="pdf"。"""
         files = _real_files("pdf", max_count=5)
@@ -236,15 +237,11 @@ class TestRealPDFParser:
             pytest.skip("没有可用的 .pdf 测试文件")
         for f in files:
             result = parser.parse(f)
-            assert "error" not in result, (
-                f"{f.name} 解析失败: {result.get('error')}"
-            )
+            assert "error" not in result, f"{f.name} 解析失败: {result.get('error')}"
             assert isinstance(result["raw_text"], str)
             assert result["metadata"]["suffix"] == "pdf"
 
-    @pytest.mark.skipif(
-        not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在"
-    )
+    @pytest.mark.skipif(not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在")
     def test_text_not_empty_for_most(self, parser: FileParser) -> None:
         """大部分 .pdf 应提取出文本；允许少量图片型 PDF 返回空文本。"""
         files = _real_files("pdf", max_count=10)
@@ -261,13 +258,10 @@ class TestRealPDFParser:
         total = len(files)
         # 允许至多 30% 为图片型 PDF（无文字层）
         assert non_empty >= total * 0.7, (
-            f"{total} 个 .pdf 中仅 {non_empty} 个有文本，非空比例过低"
-            f"\n空文本文件: {empty_files}"
+            f"{total} 个 .pdf 中仅 {non_empty} 个有文本，非空比例过低\n空文本文件: {empty_files}"
         )
 
-    @pytest.mark.skipif(
-        not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在"
-    )
+    @pytest.mark.skipif(not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在")
     def test_image_based_pdf_no_crash(self, parser: FileParser) -> None:
         """图片型（扫描件）PDF 即使无文字层也不应崩溃，应优雅返回空文本。
 
@@ -293,52 +287,34 @@ class TestRealPDFParser:
             if "error" in result:
                 print(f"  ⚠ {f.name}: {result['error']}")
 
-    @pytest.mark.skipif(
-        not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在"
-    )
     def test_encrypted_pdf_returns_friendly_error(
-        self, parser: FileParser, tmp_path: Path,
+        self,
+        parser: FileParser,
+        tmp_path: Path,
     ) -> None:
         """加密 PDF 应返回友好错误提示，而不是静默空文本。"""
-        src = _real_files("pdf", max_count=1)
-        if not src:
-            pytest.skip("没有可用的 .pdf 测试文件")
-        try:
-            from PyPDF2 import PdfReader, PdfWriter
-        except ImportError:
-            try:
-                from pypdf import PdfReader, PdfWriter  # type: ignore[no-redef]
-            except ImportError as exc:
-                pytest.skip(f"PyPDF2/pypdf 未安装，无法构造加密 PDF: {exc}")
-        src_path = src[0]
-        enc_path = tmp_path / f"encrypted_{src_path.name}"
-        try:
-            reader = PdfReader(str(src_path))
-            writer = PdfWriter()
-            for page in reader.pages:
-                writer.add_page(page)
-            writer.encrypt("test_password_123")
-            with enc_path.open("wb") as f:
-                writer.write(f)
-        except Exception as exc:
-            pytest.skip(f"无法构造加密 PDF: {exc}")
+        from PyPDF2 import PdfWriter
+
+        enc_path = tmp_path / "encrypted.pdf"
+        writer = PdfWriter()
+        writer.add_blank_page(width=72, height=72)
+        writer.encrypt("test_password_123")
+        with enc_path.open("wb") as file_obj:
+            writer.write(file_obj)
 
         result = parser.parse(enc_path)
         assert "error" in result, "加密 PDF 应返回 error 字段"
-        assert "已加密" in result["error"], (
-            f"错误信息应提示加密: {result.get('error')}"
-        )
+        assert "已加密" in result["error"], f"错误信息应提示加密: {result.get('error')}"
         assert result["raw_text"] == ""
 
 
 class TestRealPPTParser:
     """用 datasets/raw/ 中的真实 .pptx 文件验证 PPTParser。"""
 
-    @pytest.mark.skipif(
-        not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在"
-    )
+    @pytest.mark.skipif(not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在")
     def test_parse_returns_valid_structure(
-        self, parser: FileParser,
+        self,
+        parser: FileParser,
     ) -> None:
         """任意真实 .pptx 的输出必须包含 raw_text / metadata / suffix="pptx"。"""
         files = _real_files("pptx", max_count=3)
@@ -346,15 +322,11 @@ class TestRealPPTParser:
             pytest.skip("没有可用的 .pptx 测试文件")
         for f in files:
             result = parser.parse(f)
-            assert "error" not in result, (
-                f"{f.name} 解析失败: {result.get('error')}"
-            )
+            assert "error" not in result, f"{f.name} 解析失败: {result.get('error')}"
             assert isinstance(result["raw_text"], str)
             assert result["metadata"]["suffix"] == "pptx"
 
-    @pytest.mark.skipif(
-        not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在"
-    )
+    @pytest.mark.skipif(not DATASETS_DIR.is_dir(), reason="datasets/raw/ 目录不存在")
     def test_slide_count_in_metadata(self, parser: FileParser) -> None:
         """PPTParser 的 metadata 应包含 slides 字段（FileParser 透传 extra_meta）。"""
         files = _real_files("pptx", max_count=1)
@@ -372,7 +344,9 @@ class TestLegacyFormats:
     """.doc / .ppt 旧格式应返回友好错误，不崩溃。"""
 
     def test_doc_returns_friendly_error(
-        self, parser: FileParser, tmp_path: Path,
+        self,
+        parser: FileParser,
+        tmp_path: Path,
     ) -> None:
         p = tmp_path / "old.doc"
         p.write_bytes(b"\xd0\xcf\x11\xe0")  # OLE2 magic（.doc 文件头）
@@ -381,7 +355,9 @@ class TestLegacyFormats:
         assert "doc" in result["error"].lower() or "不支持" in result["error"]
 
     def test_ppt_returns_friendly_error(
-        self, parser: FileParser, tmp_path: Path,
+        self,
+        parser: FileParser,
+        tmp_path: Path,
     ) -> None:
         p = tmp_path / "old.ppt"
         p.write_bytes(b"\xd0\xcf\x11\xe0")  # OLE2 magic
@@ -782,7 +758,9 @@ class TestChartTextInference:
         charts = parser._infer_charts_from_text(text, "test")
         assert len(charts) >= 1
         pie = [c for c in charts if c.chart_type == ChartType.PIE_CHART]
-        assert len(pie) >= 1, f"应识别出饼图，实际: {[(c.chart_type.name, c.title) for c in charts]}"
+        assert len(pie) >= 1, (
+            f"应识别出饼图，实际: {[(c.chart_type.name, c.title) for c in charts]}"
+        )
 
     def test_infer_bar_chart_from_quantities(self) -> None:
         """含量词的列表应被识别为柱状图。"""
