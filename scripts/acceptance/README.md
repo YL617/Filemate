@@ -6,7 +6,7 @@
 
 - `flow4_api.py`：流程 4 API 闭环验收（出题→作答→错题→今日复习→掌握）。
 - `a3_lifecycle.py`：A3 数据生命周期验收（创建→重启可读→删除预览→删除→外部文件不删→重复删除 404）。
-- `browser_smoke.mjs`：Playwright 浏览器路由冒烟（需先启动 FastAPI 与 Vue）。
+- `browser_smoke.mjs`：Playwright 浏览器路由冒烟（需先启动 FastAPI 与 Vue）；任一路由/API/控制台检查失败时返回非零退出码。
 
 ## 运行方式
 
@@ -22,3 +22,5 @@ node <repo>\scripts\acceptance\browser_smoke.mjs
 ```
 
 输出写入 `_working/`，属于临时证据，不入库。
+
+三个脚本都以退出码作为验收结论，不能只检查是否生成 JSON 文件。
