@@ -346,6 +346,7 @@ async def process_single(
             session.transition(SessionStatus.FAILED)
             logger.error("[%s] 阶段失败: %s", session.session_id, session.error)
             break
+
     # 终态
     if session.status == SessionStatus.PROCESSING:
         session.transition(SessionStatus.DONE)
