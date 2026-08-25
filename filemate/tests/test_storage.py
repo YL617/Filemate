@@ -56,8 +56,8 @@ class TestMigrationUpgrade:
         s = SQLiteStorage(db)
         s.init_schema()
 
-        assert s.get_schema_version() == 8
-        assert [m["version"] for m in s.list_migrations()] == [1, 2, 3, 4, 5, 6, 7, 8]
+        assert s.get_schema_version() == 9
+        assert [m["version"] for m in s.list_migrations()] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
 
         conn = s._conn()
         tables = {
@@ -68,6 +68,7 @@ class TestMigrationUpgrade:
         assert "product_feedback" in tables  # v7
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(wrong_questions)")}
         assert "next_review_at" in cols       # v8 字段
+        assert "interview_questions" in tables  # v9 table
         s.close()
 
     def test_failed_migration_rolls_back(self, tmp_path: Path) -> None:
