@@ -451,7 +451,7 @@ const sendChatMessage = async () => {
     const response = await askAI(
       result.value.ctx_id,
       question,
-      chatHistory.value.slice(0, -2),
+      chatHistory.value.slice(0, -1),
       chatMode.value
     )
     const sources = response.citations?.length

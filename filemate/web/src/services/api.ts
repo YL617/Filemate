@@ -295,6 +295,22 @@ export interface AIQuestionsResponse {
   artifact_id: string
 }
 
+const QUESTION_TYPE_LABELS: Record<string, string> = {
+  choice: '选择题',
+  fill: '填空题',
+  short_answer: '简答题'
+}
+
+function normalizeAIQuestion(q: any): AIQuestion {
+  return {
+    type: QUESTION_TYPE_LABELS[q.question_type] || q.type || '',
+    question: q.stem || q.question || '',
+    options: Array.isArray(q.options) ? q.options : [],
+    answer: q.answer || '',
+    explanation: q.analysis || q.explanation || ''
+  }
+}
+
 export async function extractQuestions(
   file: File,
   question_types?: string,
@@ -318,7 +334,10 @@ export async function extractQuestions(
   )
 
   if (response.success && response.data) {
-    return response.data
+    return {
+      ...response.data,
+      questions: (response.data.questions || []).map(normalizeAIQuestion)
+    }
   }
   throw new Error(response.error || '题目提取失败')
 }
@@ -456,7 +475,12 @@ export async function getWrongbook(mastered: boolean = false): Promise<WrongQues
   const response = await api.get<any, ApiResponse<WrongQuestion[]>>(
     `/wrongbook?mastered=${mastered}`
   )
-  if (response.success && response.data) return response.data
+  if (response.success && response.data) {
+    return response.data.map(item => ({
+      ...item,
+      question: normalizeAIQuestion(item.question)
+    }))
+  }
   throw new Error(response.error || '获取错题本失败')
 }
 
