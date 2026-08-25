@@ -78,12 +78,6 @@ def _make_stages(
     def parse(session: ProcessingSession) -> ProcessingSession:
         source = session.source_path
         parsed = parser.parse(source)
-        if parsed.get("error"):
-            # 解析层显式报错（文件不存在/格式不支持/解析异常）→ 直接失败，不静默降级
-            session.error = parsed["error"]
-            session.transition(SessionStatus.FAILED)
-            storage.log_operation(session.session_id, "parse_failed", session.error)
-            return session
         raw_text = parsed.get("raw_text", "")
         meta = parsed.get("metadata", {})
 
@@ -352,9 +346,6 @@ async def process_single(
             session.transition(SessionStatus.FAILED)
             logger.error("[%s] 阶段失败: %s", session.session_id, session.error)
             break
-        if session.status == SessionStatus.FAILED:
-            break
-
     # 终态
     if session.status == SessionStatus.PROCESSING:
         session.transition(SessionStatus.DONE)
