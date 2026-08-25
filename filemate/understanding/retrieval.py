@@ -13,12 +13,13 @@ HAN_RUN = re.compile(r"[\u4e00-\u9fff]+")
 
 
 def _tokens(text: str) -> list[str]:
-    """提取英文词、中文单字与双字词。"""
+    """提取英文词及中文一至三字词，兼顾短查询召回。"""
     lowered = text.lower()
     tokens = LATIN_TOKEN.findall(lowered)
     for run in HAN_RUN.findall(lowered):
         tokens.extend(run)
         tokens.extend(run[index:index + 2] for index in range(len(run) - 1))
+        tokens.extend(run[index:index + 3] for index in range(len(run) - 2))
     return tokens
 
 

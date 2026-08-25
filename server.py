@@ -825,7 +825,7 @@ async def ai_knowledge_cards(
 async def ai_questions(
     file: Annotated[UploadFile, File()],
     question_types: Annotated[str | None, Form()] = None,
-    num_questions: Annotated[int, Form()] = 10,
+    num_questions: Annotated[int, Form(ge=1, le=30)] = 10,
 ):
     """AI题目提取：上传PDF/文档，提取练习题目。"""
     file_path, _ = await _save_upload(file)
@@ -836,6 +836,8 @@ async def ai_questions(
         from filemate.perception import FileParser
         parser = FileParser()
         parsed = parser.parse(str(file_path))
+        if parsed.get("error"):
+            raise HTTPException(status_code=422, detail=str(parsed["error"]))
         text = parsed.get("raw_text", "")
 
         if not text.strip():
@@ -846,13 +848,62 @@ async def ai_questions(
         if question_types:
             types_list = [t.strip() for t in question_types.split(",") if t.strip()]
 
-        # 提取题目
+        # 提取题目（接入统一出题主链 generate_questions_with_llm）
         from filemate.llm_client import LLMClient, LLMConfig
         llm_config = LLMConfig.from_env()
         llm = LLMClient(llm_config)
-        from filemate.understanding import QuestionExtractor
-        extractor = QuestionExtractor(llm)
-        questions = extractor.extract_questions(text, question_types=types_list, num_questions=num_questions)
+        from filemate.study import chunk_text, generate_questions_with_llm
+
+        # 旧格式 type → 新 question_type 映射
+        _TYPE_MAP = {
+            "选择题": "choice",
+            "单选题": "choice",
+            "多选题": "choice",
+            "填空题": "fill",
+            "判断题": "short_answer",
+            "简答题": "short_answer",
+            "计算题": "short_answer",
+            "论述题": "short_answer",
+            "choice": "choice",
+            "fill": "fill",
+            "short_answer": "short_answer",
+        }
+
+        def _map_type(raw: str) -> str:
+            return _TYPE_MAP.get(raw.strip(), "short_answer")
+
+        # 从文件名和文本前段推测学科和知识点
+        subject = file_path.stem[:20] or "综合"
+        knowledge_point = text[:60].replace("\n", " ") if text else "核心内容"
+        chunks = chunk_text(text, chunk_size=800, overlap=100)
+
+        all_questions: list[dict[str, Any]] = []
+        requested_types = [_map_type(t) for t in types_list] if types_list else ["choice"]
+        types_to_generate = list(dict.fromkeys(requested_types))
+        per_type, remainder = divmod(num_questions, len(types_to_generate))
+        generation_errors: list[str] = []
+        for index, qtype in enumerate(types_to_generate):
+            requested_count = per_type + (1 if index < remainder else 0)
+            if requested_count == 0:
+                continue
+            try:
+                batch = generate_questions_with_llm(
+                    llm=llm,
+                    subject=subject,
+                    knowledge_point=knowledge_point,
+                    count=requested_count,
+                    question_type=qtype,
+                    context=chunks,
+                )
+                all_questions.extend(batch)
+            except RuntimeError as exc:
+                generation_errors.append(str(exc))
+                continue
+
+        if not all_questions:
+            logger.warning("AI 题目生成无有效结果: %s", generation_errors)
+            raise HTTPException(status_code=502, detail="AI 题目生成失败")
+        questions = all_questions[:num_questions]
 
         ctx_id, source_id, artifact_id = _persist_ai_context(
             file_path=file_path,
@@ -1085,23 +1136,49 @@ def update_study_plan_day(
 
 @app.post("/quiz/attempts", response_model=ApiResponse)
 def submit_quiz_attempt(request: QuizAttemptRequest):
-    """批改练习并自动写入错题本。"""
+    """批改练习并自动写入错题本（接入统一判题 check_answer）。"""
     artifact = _storage.get_artifact(request.artifact_id)
     if artifact is None:
         raise HTTPException(status_code=404, detail="题目集不存在")
     questions = artifact.get("content")
     if not isinstance(questions, list) or not 0 <= request.question_index < len(questions):
         raise HTTPException(status_code=422, detail="题目序号无效")
-    question = questions[request.question_index]
-    reference = str(question.get("answer", "")) if isinstance(question, dict) else ""
-    score = _answer_score(request.user_answer, reference)
+
+    # 旧 Artifact 格式兼容：{type, question, options, answer, explanation}
+    # → 映射为 {question_type, stem, options, answer}
+    _OLD_TYPE_MAP = {
+        "选择题": "choice", "单选题": "choice", "多选题": "choice",
+        "填空题": "fill", "判断题": "short_answer",
+        "简答题": "short_answer", "计算题": "short_answer", "论述题": "short_answer",
+    }
+
+    def _normalize_question(q: dict[str, Any]) -> dict[str, Any]:
+        if "question_type" in q:
+            return q
+        mapped = dict(q)
+        raw_type = str(q.get("type", ""))
+        mapped["question_type"] = _OLD_TYPE_MAP.get(raw_type, "short_answer")
+        if "stem" not in mapped and "question" in q:
+            mapped["stem"] = q["question"]
+        return mapped
+
+    raw_question = questions[request.question_index]
+    if not isinstance(raw_question, dict):
+        raise HTTPException(status_code=422, detail="题目数据格式无效")
+    question = _normalize_question(raw_question)
+    user_answer = (request.user_answer or "").strip()
+
+    from filemate.study import check_answer
+    is_correct = check_answer(question, user_answer)
+    score = 1.0 if is_correct else 0.0
+
     result = _storage.record_quiz_attempt(
         artifact_id=request.artifact_id,
         question_index=request.question_index,
-        user_answer=request.user_answer.strip(),
-        is_correct=score >= 0.72,
+        user_answer=user_answer,
+        is_correct=is_correct,
         score=score,
-        feedback="回答正确" if score >= 0.72 else "已加入错题本，请结合解析复习",
+        feedback="回答正确" if is_correct else "已加入错题本，请结合解析复习",
     )
     return ApiResponse(success=True, data=result)
 

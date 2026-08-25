@@ -829,3 +829,443 @@ def test_delete_source_when_managed_file_already_missing(
     assert data["managed_file"]["exists"] is False
     assert data["managed_file"]["removed"] is False
     assert storage.get_source(source_id) is None
+# ── A1 新增：/quiz/attempts 接入 check_answer + 旧格式兼容 ────────
+
+
+def test_quiz_attempts_uses_check_answer_for_old_format_artifact(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    tmp_path: Path,
+) -> None:
+    """旧 Artifact 格式（type/question/options/answer）仍可作答，判题正确。"""
+    module, storage = server_module
+    document = tmp_path / "网络基础.txt"
+    document.write_text("TCP 使用三次握手建立可靠连接。", encoding="utf-8")
+    source_id = storage.save_source(
+        original_name="网络基础.txt",
+        source_path=str(document),
+        raw_text=document.read_text(encoding="utf-8"),
+        file_hash="tcp-hash",
+    )
+    # 使用旧格式持久化题目（模拟旧 Artifact：type/question/options/answer）
+    artifact_id = storage.save_artifact(
+        source_id=source_id,
+        artifact_type="questions",
+        title="网络基础 · 练习题",
+        content=[
+            {
+                "type": "填空题",
+                "question": "TCP 使用几次握手建立连接？",
+                "options": [],
+                "answer": "三次",
+                "explanation": "三次握手确保双方收发能力正常。",
+            }
+        ],
+    )
+
+    with TestClient(module.app) as client:
+        wrong = client.post(
+            "/quiz/attempts",
+            json={
+                "artifact_id": artifact_id,
+                "question_index": 0,
+                "user_answer": "两次",
+            },
+        )
+        correct = client.post(
+            "/quiz/attempts",
+            json={
+                "artifact_id": artifact_id,
+                "question_index": 0,
+                "user_answer": "三次",
+            },
+        )
+        wrongbook_after_correct = client.get("/wrongbook")
+
+    assert wrong.json()["data"]["is_correct"] is False
+    assert correct.json()["data"]["is_correct"] is True
+    # 旧格式答错 → 进错题本；答对 → 错题本中 error_count 仍保留但 correct_streak 增加
+    items = wrongbook_after_correct.json()["data"]
+    wrong_entry = next(item for item in items if item["question_index"] == 0)
+    assert wrong_entry["error_count"] == 1
+    assert wrong_entry["correct_streak"] == 1
+
+
+def test_new_format_questions_also_work_in_quiz_attempts(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    tmp_path: Path,
+) -> None:
+    """新格式（question_type/stem/options/answer/analysis）同样可作答。"""
+    module, storage = server_module
+    source_id = storage.save_source(
+        original_name="数学.txt",
+        source_path=str(tmp_path / "数学.txt"),
+        raw_text="矩阵乘法满足结合律。",
+    )
+    artifact_id = storage.save_artifact(
+        source_id=source_id,
+        artifact_type="questions",
+        title="数学 · 练习题",
+        content=[
+            {
+                "question_type": "choice",
+                "stem": "矩阵乘法满足什么性质？",
+                "options": ["A. 结合律", "B. 交换律"],
+                "answer": "A",
+                "analysis": "矩阵乘法满足结合律但不满足交换律。",
+            }
+        ],
+    )
+
+    with TestClient(module.app) as client:
+        correct = client.post(
+            "/quiz/attempts",
+            json={
+                "artifact_id": artifact_id,
+                "question_index": 0,
+                "user_answer": "A. 结合律",
+            },
+        )
+        wrong = client.post(
+            "/quiz/attempts",
+            json={
+                "artifact_id": artifact_id,
+                "question_index": 0,
+                "user_answer": "B. 交换律",
+            },
+        )
+
+    assert correct.json()["data"]["is_correct"] is True
+    assert correct.json()["data"]["score"] == 1.0
+    assert wrong.json()["data"]["is_correct"] is False
+    assert wrong.json()["data"]["score"] == 0.0
+
+
+def test_quiz_attempts_rejects_empty_answer(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    tmp_path: Path,
+) -> None:
+    """空答案应被判为错误（check_answer 拒绝空答案）。"""
+    module, storage = server_module
+    source_id = storage.save_source(
+        original_name="测试.txt",
+        source_path=str(tmp_path / "测试.txt"),
+        raw_text="答案是 A",
+    )
+    artifact_id = storage.save_artifact(
+        source_id=source_id,
+        artifact_type="questions",
+        title="测试题",
+        content=[
+            {
+                "question_type": "choice",
+                "stem": "选A？",
+                "options": ["A. 对", "B. 错"],
+                "answer": "A",
+            }
+        ],
+    )
+
+    with TestClient(module.app) as client:
+        response = client.post(
+            "/quiz/attempts",
+            json={
+                "artifact_id": artifact_id,
+                "question_index": 0,
+                "user_answer": "",
+            },
+        )
+
+    assert response.json()["data"]["is_correct"] is False
+    assert response.json()["data"]["score"] == 0.0
+
+
+def test_choice_answer_with_option_prefix_is_accepted(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    tmp_path: Path,
+) -> None:
+    """用户提交 'A. 结合律' 时，check_answer 应识别为正确（旧 _answer_score 会误判为 0）。"""
+    module, storage = server_module
+    source_id = storage.save_source(
+        original_name="数学.txt",
+        source_path=str(tmp_path / "数学.txt"),
+        raw_text="矩阵乘法满足结合律。",
+    )
+    artifact_id = storage.save_artifact(
+        source_id=source_id,
+        artifact_type="questions",
+        title="数学练习题",
+        content=[
+            {
+                "question_type": "choice",
+                "stem": "矩阵乘法满足什么性质？",
+                "options": ["A. 结合律", "B. 交换律"],
+                "answer": "A",
+            }
+        ],
+    )
+
+    with TestClient(module.app) as client:
+        response = client.post(
+            "/quiz/attempts",
+            json={
+                "artifact_id": artifact_id,
+                "question_index": 0,
+                "user_answer": "A. 结合律",
+            },
+        )
+
+    # check_answer 对 choice 类型检查首字母：submitted.startswith(answer[:1])
+    # "A. 结合律".startswith("A") → True
+    # 旧 _answer_score 对 "A. 结合律" vs "A" 会返回 0.0（bigram 无交集）
+    assert response.json()["data"]["is_correct"] is True
+    assert response.json()["data"]["score"] == 1.0
+
+
+def test_ai_questions_uses_generate_questions_with_llm(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """验证 /ai/questions 路由接入 generate_questions_with_llm（而非旧 QuestionExtractor）。"""
+    import filemate.llm_client as llm_module
+    import filemate.perception as perception_module
+    import filemate.study as study_module
+
+    module, _ = server_module
+
+    calls: dict[str, Any] = {}
+
+    class FakeConfig:
+        @classmethod
+        def from_env(cls) -> FakeConfig:
+            return cls()
+
+    class FakeLLM:
+        def __init__(self, config: FakeConfig) -> None:
+            self.config = config
+
+    def fake_generate(llm, subject, knowledge_point, count, question_type="choice", context=None):
+        calls["args"] = {
+            "subject": subject,
+            "knowledge_point": knowledge_point,
+            "count": count,
+            "question_type": question_type,
+            "context": context,
+        }
+        return [
+            {
+                "subject": subject,
+                "knowledge_point": knowledge_point,
+                "question_type": question_type,
+                "stem": f"测试题干 ({question_type})",
+                "options": ["A. 正确", "B. 错误"],
+                "answer": "A",
+                "analysis": "测试解析",
+            }
+        ]
+
+    class FakeParser:
+        def parse(self, path: str) -> dict[str, Any]:
+            return {"raw_text": "矩阵乘法满足结合律但不满足交换律。"}
+
+    # 用假持久化替代 _persist_ai_context，避免 SQLite 锁冲突
+    persisted: dict[str, Any] = {}
+
+    def fake_persist(**kwargs):
+        persisted.update(kwargs)
+        return ("ctx-fake", "src-fake", "art-fake")
+
+    monkeypatch.setattr(llm_module, "LLMConfig", FakeConfig)
+    monkeypatch.setattr(llm_module, "LLMClient", FakeLLM)
+    monkeypatch.setattr(study_module, "generate_questions_with_llm", fake_generate)
+    monkeypatch.setattr(perception_module, "FileParser", FakeParser)
+    monkeypatch.setattr(module, "_persist_ai_context", fake_persist)
+
+    document = tmp_path / "数学讲义.txt"
+    document.write_text("矩阵乘法满足结合律。", encoding="utf-8")
+
+    with TestClient(module.app) as client:
+        response = client.post(
+            "/ai/questions",
+            files={"file": ("数学讲义.txt", document.read_bytes(), "text/plain")},
+            data={"question_types": "choice", "num_questions": "1"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["questions_count"] == 1
+    assert data["questions"][0]["question_type"] == "choice"
+    assert data["questions"][0]["stem"] == "测试题干 (choice)"
+    # 确认调用的是 generate_questions_with_llm（subject 来自文件名）
+    assert "subject" in calls.get("args", {})
+    assert calls["args"]["subject"] == "数学讲义"
+    assert calls["args"]["question_type"] == "choice"
+    assert calls["args"]["count"] == 1
+    assert persisted["artifact_type"] == "questions"
+
+
+def test_ai_questions_distributes_requested_count_across_types(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """多题型生成应分配余数，不能因整除少生成题目。"""
+    import filemate.llm_client as llm_module
+    import filemate.perception as perception_module
+    import filemate.study as study_module
+
+    module, _ = server_module
+    requested: list[tuple[str, int]] = []
+
+    class FakeConfig:
+        @classmethod
+        def from_env(cls) -> FakeConfig:
+            return cls()
+
+    class FakeLLM:
+        def __init__(self, config: FakeConfig) -> None:
+            self.config = config
+
+    class FakeParser:
+        def parse(self, path: str) -> dict[str, Any]:
+            return {"raw_text": "用于匿名测试的课程内容。"}
+
+    def fake_generate(**kwargs: Any) -> list[dict[str, Any]]:
+        question_type = str(kwargs["question_type"])
+        count = int(kwargs["count"])
+        requested.append((question_type, count))
+        return [
+            {
+                "question_type": question_type,
+                "stem": f"{question_type}-{index}",
+                "answer": "A",
+            }
+            for index in range(count)
+        ]
+
+    monkeypatch.setattr(llm_module, "LLMConfig", FakeConfig)
+    monkeypatch.setattr(llm_module, "LLMClient", FakeLLM)
+    monkeypatch.setattr(perception_module, "FileParser", FakeParser)
+    monkeypatch.setattr(study_module, "generate_questions_with_llm", fake_generate)
+    monkeypatch.setattr(
+        module,
+        "_persist_ai_context",
+        lambda **kwargs: ("ctx", "source", "artifact"),
+    )
+
+    with TestClient(module.app) as client:
+        response = client.post(
+            "/ai/questions",
+            files={"file": ("课程.txt", b"content", "text/plain")},
+            data={"question_types": "choice,fill", "num_questions": "5"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["questions_count"] == 5
+    assert requested == [("choice", 3), ("fill", 2)]
+
+
+def test_ai_questions_does_not_persist_empty_generation(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """所有模型调用失败时应返回 502，不能保存空题集并误报成功。"""
+    import filemate.llm_client as llm_module
+    import filemate.perception as perception_module
+    import filemate.study as study_module
+
+    module, _ = server_module
+
+    class FakeConfig:
+        @classmethod
+        def from_env(cls) -> FakeConfig:
+            return cls()
+
+    class FakeLLM:
+        def __init__(self, config: FakeConfig) -> None:
+            self.config = config
+
+    class FakeParser:
+        def parse(self, path: str) -> dict[str, Any]:
+            return {"raw_text": "用于匿名测试的课程内容。"}
+
+    def fail_generation(**kwargs: Any) -> list[dict[str, Any]]:
+        raise RuntimeError("模拟模型不可用")
+
+    monkeypatch.setattr(llm_module, "LLMConfig", FakeConfig)
+    monkeypatch.setattr(llm_module, "LLMClient", FakeLLM)
+    monkeypatch.setattr(perception_module, "FileParser", FakeParser)
+    monkeypatch.setattr(study_module, "generate_questions_with_llm", fail_generation)
+
+    persisted = False
+
+    def fail_if_persisted(**kwargs: Any) -> tuple[str, str, str]:
+        nonlocal persisted
+        persisted = True
+        return ("ctx", "source", "artifact")
+
+    monkeypatch.setattr(module, "_persist_ai_context", fail_if_persisted)
+
+    with TestClient(module.app) as client:
+        response = client.post(
+            "/ai/questions",
+            files={"file": ("课程.txt", b"content", "text/plain")},
+            data={"question_types": "choice,fill", "num_questions": "5"},
+        )
+
+    assert response.status_code == 502
+    assert response.json()["success"] is False
+    assert persisted is False
+
+
+def test_ai_questions_surfaces_parser_error(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AI 出题应保留加密/损坏文件的可操作错误信息。"""
+    import filemate.perception as perception_module
+
+    module, _ = server_module
+
+    class FakeParser:
+        def parse(self, path: str) -> dict[str, Any]:
+            return {
+                "raw_text": "",
+                "metadata": {"encrypted": True},
+                "error": "PDF 已加密，请先解密后重新上传",
+            }
+
+    monkeypatch.setattr(perception_module, "FileParser", FakeParser)
+
+    with TestClient(module.app) as client:
+        response = client.post(
+            "/ai/questions",
+            files={"file": ("encrypted.pdf", b"encrypted", "application/pdf")},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "PDF 已加密，请先解密后重新上传"
+
+
+def test_quiz_attempt_rejects_malformed_question_artifact(
+    server_module: tuple[ModuleType, SQLiteStorage],
+) -> None:
+    """损坏的题目 Artifact 应返回 422，而不是触发服务端 500。"""
+    module, storage = server_module
+    artifact_id = storage.save_artifact(
+        artifact_type="questions",
+        title="损坏题集",
+        content=["not-a-question"],
+    )
+
+    with TestClient(module.app) as client:
+        response = client.post(
+            "/quiz/attempts",
+            json={
+                "artifact_id": artifact_id,
+                "question_index": 0,
+                "user_answer": "A",
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "题目数据格式无效"
