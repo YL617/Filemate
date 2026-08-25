@@ -432,7 +432,7 @@ uv run python main.py --check --db _working/check.db
 |---|---|---|
 | `LLM_PROVIDER` | `auto` | 根据 Base URL 选择 Provider |
 | `LLM_API_KEY` | AI 功能需要 | 模型密钥 |
-| `LLM_BASE_URL` | 例如 StepFun `/v1` | OpenAI 兼容 API 地址 |
+| `LLM_BASE_URL` | 例如 DeepSeek `/v1` | OpenAI 兼容 API 地址 |
 | `LLM_MODEL` | 由供应商决定 | 模型名称 |
 | `FILEMATE_DATA_DIR` | `<项目>/.filemate-data` | 本地应用数据根目录 |
 | `FILEMATE_UPLOAD_DIR` | `<DATA_DIR>/inbox` | 上传暂存目录 |

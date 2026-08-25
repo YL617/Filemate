@@ -8,14 +8,14 @@ import time
 from typing import Any
 
 from .config import LLMConfig
-from .providers.base import BaseLLMProvider
-from .providers.step_speed import StepSpeedProvider
 from .exceptions import (
     LLMAPIError,
     LLMConfigError,
     LLMRateLimitError,
     LLMTimeoutError,
 )
+from .providers.base import BaseLLMProvider
+from .providers.step_speed import StepSpeedProvider
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class LLMClient:
             else:
                 name = "step"  # 默认使用 step
 
-        if name in ("step", "step_speed", "step_plan"):
+        if name in ("step", "step_speed", "step_plan", "deepseek"):
             return StepSpeedProvider(config)
 
         raise LLMConfigError(f"不支持的 LLM 供应商: {name}")
