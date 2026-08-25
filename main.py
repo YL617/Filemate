@@ -39,15 +39,20 @@ from filemate.execution.scheduler import CalendarBuilder, CalendarEvent
 from filemate.execution.storage import SQLiteStorage
 from filemate.llm_client import LLMClient, LLMConfig
 from filemate.perception import FileParser
+from filemate.perception.chart_parser import ChartParser
 from filemate.perception.ocr import OCRBackend
+from filemate.perception.table_reader import TableReader
 from filemate.understanding import Classifier, EntityExtractor, MilestoneDetector, Namer
 
 logger = logging.getLogger(__name__)
+
+_MAX_PARSED_CHARS = 500_000
 
 
 # ──────────────────────────────────────────────
 #  阶段函数工厂（将各模块包装成 PipelineWorker 接受的 StageFn）
 # ──────────────────────────────────────────────
+
 
 def _make_stages(
     parser: FileParser,
@@ -67,12 +72,21 @@ def _make_stages(
 
     # 阶段 1：解析文件（图片型 PDF 自动 OCR 回退）
     _ocr = OCRBackend()  # 全局单例，懒加载
+    _table_reader = TableReader()
+    _chart_parser = ChartParser()
 
     def parse(session: ProcessingSession) -> ProcessingSession:
         source = session.source_path
         parsed = parser.parse(source)
         raw_text = parsed.get("raw_text", "")
         meta = parsed.get("metadata", {})
+
+        # 解析失败（损坏文件/加密 PDF）→ 直接中断，不浪费 LLM 调用
+        if parsed.get("error"):
+            session.entities["raw_text"] = raw_text
+            session.entities["metadata"] = meta
+            storage.log_operation(session.session_id, "parse", f"FAILED: {parsed['error']}")
+            raise ValueError(parsed["error"])
 
         # 空文本 + 图片型 PDF → 尝试 OCR
         if not raw_text.strip() and meta.get("suffix") == "pdf" and meta.get("text_pages", 1) == 0:
@@ -84,12 +98,54 @@ def _make_stages(
                 else:
                     logger.warning("[%s] OCR 未识别到文字", session.session_id)
             else:
-                logger.info("[%s] 图片型 PDF，OCR 不可用（PaddleOCR 未安装），跳过", session.session_id)
+                logger.info(
+                    "[%s] 图片型 PDF，OCR 不可用（PaddleOCR 未安装），跳过", session.session_id
+                )
+
+        # 提取表格 → Markdown 追加到 raw_text
+        try:
+            tables = _table_reader.extract_tables(source)
+            if tables:
+                table_md = "\n\n".join(t.to_markdown() for t in tables if t.to_markdown())
+                if table_md:
+                    raw_text += f"\n\n--- 表格数据 ---\n{table_md}"
+                    meta["tables"] = len(tables)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[%s] 表格提取失败: %s", session.session_id, exc)
+
+        # 提取图表 → 文本追加到 raw_text
+        try:
+            charts = _chart_parser.extract_charts(source)
+            if charts:
+                chart_lines = []
+                for ch in charts:
+                    if ch.title:
+                        chart_lines.append(f"图表: {ch.title}")
+                    if ch.description:
+                        chart_lines.append(f"说明: {ch.description}")
+                    for el in ch.to_task_elements():
+                        if el.get("text"):
+                            chart_lines.append(f"  - {el['text']}")
+                if chart_lines:
+                    raw_text += "\n\n--- 图表数据 ---\n" + "\n".join(chart_lines)
+                    meta["charts"] = len(charts)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[%s] 图表提取失败: %s", session.session_id, exc)
+
+        if len(raw_text) > _MAX_PARSED_CHARS:
+            raw_text = raw_text[:_MAX_PARSED_CHARS]
+            meta["truncated"] = True
+            logger.info(
+                "[%s] 结构化内容追加后已截断到 %d 字",
+                session.session_id,
+                _MAX_PARSED_CHARS,
+            )
 
         session.entities["raw_text"] = raw_text
         session.entities["metadata"] = meta
         storage.log_operation(session.session_id, "parse", source)
         return session
+
     parse.__name__ = "parse"  # type: ignore[attr-defined]
     stages.append(parse)
 
@@ -102,9 +158,11 @@ def _make_stages(
         session.confidence = float(result.get("confidence", 0.0))
         if result.get("course_name"):
             session.entities["course_name"] = result["course_name"]
-        storage.log_operation(session.session_id, "classify",
-                             f"{session.category}({session.confidence:.0%})")
+        storage.log_operation(
+            session.session_id, "classify", f"{session.category}({session.confidence:.0%})"
+        )
         return session
+
     classify.__name__ = "classify"  # type: ignore[attr-defined]
     stages.append(classify)
 
@@ -115,6 +173,7 @@ def _make_stages(
         session.entities.update(entities)
         storage.log_operation(session.session_id, "extract")
         return session
+
     extract.__name__ = "extract"  # type: ignore[attr-defined]
     stages.append(extract)
 
@@ -123,9 +182,9 @@ def _make_stages(
         raw_text = session.entities.get("raw_text", "")
         milestones = detector.detect(raw_text)
         session.milestones = milestones
-        storage.log_operation(session.session_id, "detect_milestones",
-                             f"{len(milestones)} events")
+        storage.log_operation(session.session_id, "detect_milestones", f"{len(milestones)} events")
         return session
+
     detect.__name__ = "detect_milestones"  # type: ignore[attr-defined]
     stages.append(detect)
 
@@ -144,11 +203,13 @@ def _make_stages(
         session.suggested_name = suggested
         storage.log_operation(session.session_id, "name", suggested)
         return session
+
     generate_name.__name__ = "generate_name"  # type: ignore[attr-defined]
     stages.append(generate_name)
 
     # 阶段 6：只生成日历预览；真正写盘与归档由确认执行器原子完成
     if not skip_calendar:
+
         def calendar_(session: ProcessingSession) -> ProcessingSession:
             events: list[dict[str, str]] = []
             for m in session.milestones:
@@ -167,13 +228,16 @@ def _make_stages(
                 f"{len(events)} events",
             )
             return session
+
         calendar_.__name__ = "calendar"  # type: ignore[attr-defined]
         stages.append(calendar_)
     else:
+
         def disable_calendar(session: ProcessingSession) -> ProcessingSession:
             session.entities["calendar_enabled"] = False
             session.entities["calendar_preview"] = []
             return session
+
         disable_calendar.__name__ = "calendar_disabled"  # type: ignore[attr-defined]
         stages.append(disable_calendar)
 
@@ -186,6 +250,7 @@ def _make_stages(
 # ──────────────────────────────────────────────
 #  watch 模式
 # ──────────────────────────────────────────────
+
 
 async def _watch_loop(
     watch_dir: str | Path,
@@ -217,6 +282,7 @@ async def _watch_loop(
 #  main
 # ──────────────────────────────────────────────
 
+
 def _build_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="FileMate — 课程文件智能归档")
     p.add_argument("path", nargs="?", help="待处理文件路径")
@@ -224,8 +290,11 @@ def _build_args() -> argparse.Namespace:
     p.add_argument("--no-calendar", action="store_true", help="跳过 .ics 生成")
     p.add_argument("--db", default="filemate.db", help="SQLite 路径（默认 filemate.db）")
     p.add_argument("-v", "--verbose", action="store_true", help="DEBUG 日志")
-    p.add_argument("--check", action="store_true",
-                   help="环境检查模式：验证各模块可导入、Schema 可初始化、.ics 可生成（不处理真实文件）")
+    p.add_argument(
+        "--check",
+        action="store_true",
+        help="环境检查模式：验证各模块可导入、Schema 可初始化、.ics 可生成（不处理真实文件）",
+    )
     return p.parse_args()
 
 
@@ -258,8 +327,15 @@ async def process_single(
     # 运行阶段链
     session.transition(SessionStatus.PROCESSING)
     stages = _make_stages(
-        parser, classifier, extractor, detector, namer,
-        calendar, archiver, storage, llm,
+        parser,
+        classifier,
+        extractor,
+        detector,
+        namer,
+        calendar,
+        archiver,
+        storage,
+        llm,
         skip_calendar=skip_calendar,
     )
     for stage in stages:
@@ -277,8 +353,16 @@ async def process_single(
 
     session_dict = session.to_dict()
     # update_session 只接受部分字段，过滤 + 序列化复杂类型
-    _allowed = {"status", "category", "confidence", "suggested_name",
-                "entities", "milestones", "error", "user_modified"}
+    _allowed = {
+        "status",
+        "category",
+        "confidence",
+        "suggested_name",
+        "entities",
+        "milestones",
+        "error",
+        "user_modified",
+    }
     filtered = {}
     for k, v in session_dict.items():
         if k not in _allowed:
@@ -334,11 +418,13 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        session = asyncio.run(process_single(
-            str(path),
-            skip_calendar=args.no_calendar,
-            db_path=args.db,
-        ))
+        session = asyncio.run(
+            process_single(
+                str(path),
+                skip_calendar=args.no_calendar,
+                db_path=args.db,
+            )
+        )
     except NotImplementedError as exc:
         print(f"\n⚠️  功能尚未实现：{exc}")
         print("请让对应成员按 TODO 标记完成：")
@@ -441,7 +527,9 @@ def _run_check(db_path: str) -> bool:
             archiver = Archiver(base, ops2)
             src = Path(td) / "hw.docx"
             src.write_text("第三章习题")
-            result = archiver.archive("chk-1", "作业", "操作系统", "[操作系统]-[作业]-[习题].docx", src)
+            result = archiver.archive(
+                "chk-1", "作业", "操作系统", "[操作系统]-[作业]-[习题].docx", src
+            )
             assert result.success
             dest = base / "操作系统" / "作业" / "[操作系统]-[作业]-[习题].docx"
             assert dest.exists()
@@ -453,10 +541,14 @@ def _run_check(db_path: str) -> bool:
     # 5. operation_log 写入（新签名兼容）
     print("[5/5] operation_log ...", end=" ")
     try:
-        storage.log_operation(sid, "classify", "课件 0.9",
-                              input_snapshot='{"category":"课件","confidence":0.9}',
-                              model_used="step-3.7-speed",
-                              latency_ms=1200)
+        storage.log_operation(
+            sid,
+            "classify",
+            "课件 0.9",
+            input_snapshot='{"category":"课件","confidence":0.9}',
+            model_used="step-3.7-speed",
+            latency_ms=1200,
+        )
         ops_log = storage.get_operations(sid)
         assert len(ops_log) >= 1
         # 验证新字段存在
