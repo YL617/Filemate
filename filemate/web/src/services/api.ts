@@ -20,7 +20,7 @@ const api = axios.create({
 
 export async function checkHealth(): Promise<boolean> {
   const response = await api.get<any, ApiResponse<{ version: string }>>('/api/health')
-  return response.success && response.data?.version === '1.2.0'
+  return response.success && Boolean(response.data?.version)
 }
 
 // 请求拦截器
@@ -47,7 +47,10 @@ api.interceptors.response.use(
 )
 
 // 上传文件
-export async function uploadFile(file: File): Promise<ProcessingSession> {
+export async function uploadFile(
+  file: File,
+  onProgress?: (percentage: number) => void
+): Promise<ProcessingSession> {
   const formData = new FormData()
   formData.append('file', file)
 
@@ -57,6 +60,10 @@ export async function uploadFile(file: File): Promise<ProcessingSession> {
     {
       headers: {
         'Content-Type': 'multipart/form-data'
+      },
+      onUploadProgress: event => {
+        if (!event.total || !onProgress) return
+        onProgress(Math.min(85, Math.round((event.loaded / event.total) * 85)))
       }
     }
   )

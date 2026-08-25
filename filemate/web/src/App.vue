@@ -64,6 +64,17 @@
     </aside>
 
     <main id="main-content" class="workspace" tabindex="-1">
+      <div v-if="!backendConnected" class="service-banner" role="alert">
+        <el-icon><Connection /></el-icon>
+        <div>
+          <strong>本地服务尚未连接</strong>
+          <span>请运行 <code>scripts/dev.ps1</code>，启动后可导入、检索和保存学习资料。</span>
+        </div>
+        <button type="button" :disabled="serviceChecking" @click="loadShellState">
+          {{ serviceChecking ? '检查中…' : '重新检查' }}
+        </button>
+      </div>
+
       <header class="topbar">
         <div class="topbar-title">
           <button
@@ -190,6 +201,7 @@ const sidebarCollapsed = ref(false)
 const mobileNavOpen = ref(false)
 const showSettings = ref(false)
 const backendConnected = ref(false)
+const serviceChecking = ref(false)
 const todayCount = ref(0)
 const refreshing = ref(false)
 const refreshToken = ref(0)
@@ -228,8 +240,13 @@ const menuGroups = [
 const pageTitle = computed(() => String(route.meta.title || '学习工作台'))
 
 async function loadShellState(): Promise<void> {
+  serviceChecking.value = true
   try {
     backendConnected.value = await checkHealth()
+    if (!backendConnected.value) {
+      todayCount.value = 0
+      return
+    }
     const sessions = await getHistory(undefined, 100)
     const today = new Date().toDateString()
     todayCount.value = sessions.filter(
@@ -238,6 +255,8 @@ async function loadShellState(): Promise<void> {
   } catch {
     backendConnected.value = false
     todayCount.value = 0
+  } finally {
+    serviceChecking.value = false
   }
 }
 
@@ -469,6 +488,61 @@ onMounted(loadShellState)
   flex-direction: column;
 }
 
+.service-banner {
+  min-height: 52px;
+  padding: 9px 20px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-primary);
+  background: #fff8eb;
+  border-bottom: 1px solid #ead5ad;
+  font-size: 12px;
+}
+
+.service-banner > .el-icon {
+  color: var(--warning);
+  font-size: 20px;
+}
+
+.service-banner > div {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.service-banner strong {
+  font-size: 13px;
+}
+
+.service-banner span {
+  color: var(--text-secondary);
+}
+
+.service-banner code {
+  padding: 2px 5px;
+  color: var(--text-primary);
+  background: rgba(154, 101, 29, 0.08);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+}
+
+.service-banner button {
+  min-height: 34px;
+  padding: 0 12px;
+  color: var(--warning);
+  background: transparent;
+  border: 1px solid #d8b879;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+.service-banner button:disabled {
+  opacity: 0.55;
+}
+
 .topbar {
   min-height: var(--topbar-height);
   padding: 0 28px;
@@ -668,6 +742,16 @@ onMounted(loadShellState)
 }
 
 @media (max-width: 560px) {
+  .service-banner {
+    grid-template-columns: 20px minmax(0, 1fr);
+    padding: 10px 14px;
+  }
+
+  .service-banner button {
+    grid-column: 2;
+    justify-self: start;
+  }
+
   .topbar {
     padding: 0 14px;
   }

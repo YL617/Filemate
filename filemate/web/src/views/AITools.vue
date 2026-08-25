@@ -585,13 +585,13 @@ const exportCardsAsCsv = () => {
 }
 
 .tab-btn:hover {
-  border-color: rgba(99, 102, 241, 0.3);
+  border-color: var(--accent-border);
 }
 
 .tab-btn.active {
-  background: rgba(99, 102, 241, 0.15);
-  border-color: rgba(99, 102, 241, 0.5);
-  color: #a5b4fc;
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .tab-icon {
@@ -611,13 +611,13 @@ const exportCardsAsCsv = () => {
 }
 
 .upload-zone:hover {
-  border-color: rgba(99, 102, 241, 0.4);
-  background: rgba(99, 102, 241, 0.03);
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
 }
 
 .upload-zone.is-dragover {
-  border-color: #6366f1;
-  background: rgba(99, 102, 241, 0.08);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .upload-icon {
@@ -694,7 +694,7 @@ const exportCardsAsCsv = () => {
   align-items: center;
   gap: 10px;
   padding: 14px 40px;
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  background: var(--accent);
   border: none;
   border-radius: 12px;
   color: #fff;
@@ -706,7 +706,8 @@ const exportCardsAsCsv = () => {
 
 .btn-primary:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+  background: var(--accent-hover);
+  box-shadow: 0 6px 18px rgba(47, 125, 85, 0.16);
 }
 
 .btn-primary:disabled {
@@ -997,12 +998,12 @@ const exportCardsAsCsv = () => {
 .chat-input-area input:focus {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-color: rgba(99, 102, 241, 0.5);
+  border-color: var(--accent);
 }
 
 .send-btn {
   padding: 12px 24px;
-  background: #6366f1;
+  background: var(--accent);
   border: none;
   border-radius: 10px;
   color: #fff;
@@ -1012,7 +1013,7 @@ const exportCardsAsCsv = () => {
 }
 
 .send-btn:hover:not(:disabled) {
-  background: #4f46e5;
+  background: var(--accent-hover);
 }
 
 .send-btn:disabled {
@@ -1029,15 +1030,15 @@ const exportCardsAsCsv = () => {
 .btn-chat {
   padding: 12px 24px;
   background: transparent;
-  border: 1px solid rgba(99, 102, 241, 0.4);
+  border: 1px solid var(--accent-border);
   border-radius: 10px;
-  color: #a5b4fc;
+  color: var(--accent);
   font-size: 14px;
   cursor: pointer;
 }
 
 .btn-chat:hover {
-  background: rgba(99, 102, 241, 0.1);
+  background: var(--accent-soft);
 }
 
 /* 错误提示 */
@@ -1053,6 +1054,56 @@ const exportCardsAsCsv = () => {
   font-size: 14px;
 }
 .tutor-modes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:10px;border-bottom:1px solid var(--border-subtle);background:var(--bg-base)}.tutor-modes button{display:flex;align-items:flex-start;flex-direction:column;gap:3px;padding:10px 12px;border:1px solid var(--border-subtle);border-radius:9px;background:var(--bg-surface);color:var(--text-secondary);text-align:left;cursor:pointer}.tutor-modes button.active{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}.tutor-modes b{font-size:13px}.tutor-modes span{font-size:11px;color:var(--text-muted)}@media(max-width:560px){.tutor-modes{grid-template-columns:1fr}.tutor-modes button{flex-direction:row;align-items:center;justify-content:space-between}}
+
+/* 移动端（375px）适配 */
+@media (max-width: 640px) {
+  .tab-btn {
+    min-height: 44px;
+    padding: 10px 14px;
+  }
+
+  .upload-zone {
+    padding: 24px 16px;
+  }
+
+  .config-row {
+    flex-wrap: wrap;
+  }
+
+  .config-row input[type="range"] {
+    min-width: 160px;
+  }
+
+  .result-section {
+    padding: 16px;
+  }
+
+  .result-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .btn-primary,
+  .btn-chat,
+  .send-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .export-actions {
+    flex-wrap: wrap;
+  }
+
+  .export-actions .btn-secondary {
+    flex: 1;
+    min-width: 44px;
+  }
+
+  .chat-message {
+    max-width: 92%;
+  }
+}
+
 </style>
 
 <style scoped>

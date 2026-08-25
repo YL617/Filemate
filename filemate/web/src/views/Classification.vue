@@ -1,11 +1,16 @@
 <template>
   <div class="classification-page">
-    <el-alert
-      title="请先在导入页面上传文件"
-      type="info"
-      :closable="false"
-      v-if="!currentFile"
-    />
+    <WorkflowSteps :current="2" />
+    <DataState v-if="sessionLoading" loading />
+    <DataState v-else-if="sessionError" :error="sessionError" @retry="loadRequestedSession" />
+    <div v-else-if="!currentFile" class="empty-action">
+      <DataState empty>
+        <el-icon><Collection /></el-icon>
+        <strong>还没有可审核的资料</strong>
+        <span>先导入一份课程资料，系统会在这里展示分类依据。</span>
+        <el-button type="primary" @click="router.push('/import')">去导入资料</el-button>
+      </DataState>
+    </div>
 
     <template v-else>
       <el-card>
@@ -16,7 +21,7 @@
         </template>
 
         <el-row :gutter="20">
-          <el-col :span="12">
+          <el-col :span="12" :xs="24">
             <el-card shadow="hover">
               <template #header>
                 <span>分类结果</span>
@@ -32,7 +37,7 @@
             </el-card>
           </el-col>
 
-          <el-col :span="12">
+          <el-col :span="12" :xs="24">
             <el-card shadow="hover">
               <template #header>
                 <span>修改分类</span>
@@ -49,10 +54,11 @@
               <el-button
                 type="primary"
                 style="margin-top: 12px"
+                :disabled="!selectedCategory"
                 @click="confirmCategory"
                 :loading="confirming"
               >
-                确认分类
+                保存并继续命名
               </el-button>
             </el-card>
           </el-col>
@@ -62,36 +68,54 @@
       <!-- ECharts 饼图：分类统计 -->
       <el-card style="margin-top: 20px">
         <template #header>
-          <span>分类分布（待实现）</span>
+          <span>分类分布</span>
         </template>
-        <div ref="chartRef" style="height: 300px"></div>
+        <div class="chart-wrap">
+          <div ref="chartRef" v-loading="chartLoading" style="height: 300px"></div>
+          <div v-if="chartError" class="chart-state" role="alert">
+            <span>{{ chartError }}</span>
+            <el-button size="small" @click="loadDistribution">重试</el-button>
+          </div>
+          <div v-else-if="!chartLoading && distribution.length === 0" class="chart-state">
+            <span>暂无分类统计数据，处理资料后自动生成。</span>
+          </div>
+        </div>
       </el-card>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Collection } from '@element-plus/icons-vue'
-import { getSession, updateSessionDraft } from '../services/api'
+import { getHistory, getSession, updateSessionDraft } from '../services/api'
 import { useFileStore } from '../stores/fileStore'
 import type { Category } from '../types'
 import * as echarts from 'echarts/core'
 import { PieChart } from 'echarts/charts'
 import { LegendComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import DataState from '../components/DataState.vue'
+import WorkflowSteps from '../components/WorkflowSteps.vue'
 
 echarts.use([PieChart, LegendComponent, TooltipComponent, CanvasRenderer])
 
 const route = useRoute()
+const router = useRouter()
 const fileStore = useFileStore()
 const chartRef = ref<HTMLElement>()
+let chartInstance: ReturnType<typeof echarts.init> | null = null
 
 const currentFile = computed(() => fileStore.currentFile)
 const selectedCategory = ref<Category | ''>('')
 const confirming = ref(false)
+const sessionLoading = ref(false)
+const sessionError = ref('')
+const distribution = ref<{ name: string; value: number }[]>([])
+const chartLoading = ref(false)
+const chartError = ref('')
 
 watch(currentFile, (file) => {
   if (file) {
@@ -99,21 +123,40 @@ watch(currentFile, (file) => {
   }
 })
 
-onMounted(() => {
-  const sessionId = route.query.session as string
-  if (sessionId) {
-    loadSession(sessionId)
-  }
+function handleChartResize() {
+  chartInstance?.resize()
+}
+
+onMounted(async () => {
+  await loadRequestedSession()
+  await nextTick()
   initChart()
+  await loadDistribution()
+  window.addEventListener('resize', handleChartResize)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleChartResize)
+  chartInstance?.dispose()
+  chartInstance = null
 })
 
 async function loadSession(sessionId: string) {
+  sessionLoading.value = true
+  sessionError.value = ''
   try {
     const session = await getSession(sessionId)
     fileStore.setCurrentFile(session)
   } catch (e) {
-    console.error('Failed to load session:', e)
+    sessionError.value = e instanceof Error ? e.message : '处理结果加载失败'
+  } finally {
+    sessionLoading.value = false
   }
+}
+
+async function loadRequestedSession() {
+  const sessionId = route.query.session as string | undefined
+  if (sessionId) await loadSession(sessionId)
 }
 
 async function confirmCategory() {
@@ -126,6 +169,7 @@ async function confirmCategory() {
     })
     fileStore.setCurrentFile(updated)
     ElMessage.success('分类已保存，确认命名后执行归档')
+    await router.push({ path: '/naming', query: { session: updated.session_id } })
   } catch (e: any) {
     ElMessage.error(e.message)
   } finally {
@@ -134,9 +178,48 @@ async function confirmCategory() {
 }
 
 function initChart() {
-  if (!chartRef.value) return
+  if (!chartRef.value || chartInstance) return
+  // 只 init 一次，后续用 setOption 更新
+  chartInstance = echarts.init(chartRef.value)
+  updateChart()
+}
 
-  const chart = echarts.init(chartRef.value)
+// 从历史记录实时聚合分类分布（复用真实接口 getHistory）
+async function loadDistribution() {
+  chartLoading.value = true
+  chartError.value = ''
+  try {
+    const history = await getHistory(undefined, 100)
+    const counts: Record<string, number> = {}
+    for (const item of history) {
+      const cat = item.category || '待确认'
+      counts[cat] = (counts[cat] || 0) + 1
+    }
+    distribution.value = Object.entries(counts).map(([name, value]) => ({ name, value }))
+  } catch (e: any) {
+    chartError.value = e?.message || '分类统计加载失败'
+  } finally {
+    chartLoading.value = false
+    updateChart()
+  }
+}
+
+function updateChart() {
+  if (!chartRef.value || !chartInstance) return
+  const colorMap: Record<string, string> = {
+    课件: '#2f7d55',
+    作业: '#5a9875',
+    竞赛通知: '#86b69a',
+    考试通知: '#9a651d',
+    参考资料: '#6d8077',
+    大创通知: '#bfd0c3',
+    待确认: '#b44b4b'
+  }
+  const data = distribution.value.map(d => ({
+    ...d,
+    itemStyle: { color: colorMap[d.name] || '#9ca3af' }
+  }))
+
   const option = {
     tooltip: {
       trigger: 'item',
@@ -174,29 +257,23 @@ function initChart() {
           itemStyle: {
             shadowBlur: 20,
             shadowOffsetX: 0,
-            shadowColor: 'rgba(16, 185, 129, 0.4)'
+            shadowColor: 'rgba(47, 125, 85, 0.24)'
           },
           label: {
             show: true,
             fontSize: 14,
             fontWeight: 'bold',
-        color: '#183229'
+            color: '#183229'
           }
         },
         labelLine: {
-      lineStyle: { color: '#d7e3d9' }
+          lineStyle: { color: '#d7e3d9' }
         },
-        data: [
-          { value: 35, name: '课件', itemStyle: { color: '#6366f1' } },
-          { value: 28, name: '作业', itemStyle: { color: '#ec4899' } },
-          { value: 15, name: '竞赛通知', itemStyle: { color: '#10b981' } },
-          { value: 12, name: '考试通知', itemStyle: { color: '#ef4444' } },
-          { value: 10, name: '参考资料', itemStyle: { color: '#f59e0b' } }
-        ]
+        data
       }
     ]
   }
-  chart.setOption(option)
+  chartInstance.setOption(option)
 }
 </script>
 
@@ -217,7 +294,38 @@ function initChart() {
 }
 
 .confidence {
-  color: #888;
+  color: var(--text-muted);
   font-size: 14px;
+}
+
+.empty-action :deep(.data-state) {
+  min-height: 300px;
+}
+
+.empty-action :deep(.el-icon) {
+  color: var(--accent);
+  font-size: 34px;
+}
+
+.empty-action :deep(strong) {
+  color: var(--text-primary);
+}
+
+.chart-wrap {
+  position: relative;
+}
+
+.chart-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  color: #6d8077;
+  font-size: 13px;
+  background: var(--bg-surface);
 }
 </style>

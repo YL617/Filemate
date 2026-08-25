@@ -11,34 +11,81 @@
         </div>
       </template>
 
-      <el-table :data="history" v-loading="loading" stripe>
-        <el-table-column prop="session_id" label="ID" width="100" />
-        <el-table-column label="文件" min-width="200">
-          <template #default="{ row }">
-            {{ getFileName(row.execution?.dest_path || row.source_path) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="category" label="分类" width="100">
-          <template #default="{ row }">
-            <el-tag :type="getCategoryType(row.category)" size="small">
-              {{ row.category || '待确认' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="suggested_name" label="建议名" min-width="200" />
-        <el-table-column prop="status" label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)" size="small">
-              {{ getStatusText(row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="180" />
-        <el-table-column label="操作" width="210" fixed="right">
-          <template #default="{ row }">
-            <el-button type="primary" size="small" @click="viewDetail(row)">
-              查看
-            </el-button>
+      <DataState v-if="error" :error="error" @retry="loadHistory" />
+      <DataState v-else-if="!loading && history.length === 0" empty>
+        <el-icon class="history-empty-icon"><Document /></el-icon>
+        <strong>还没有处理记录</strong>
+        <span>导入并确认第一份资料后，执行与撤销记录会显示在这里。</span>
+        <el-button type="primary" @click="router.push('/import')">导入第一份资料</el-button>
+      </DataState>
+
+      <div v-else class="history-table">
+        <el-table :data="history" v-loading="loading" stripe>
+          <el-table-column prop="session_id" label="ID" width="100" />
+          <el-table-column label="文件" min-width="200">
+            <template #default="{ row }">
+              {{ getFileName(row.execution?.dest_path || row.source_path) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="category" label="分类" width="100">
+            <template #default="{ row }">
+              <el-tag :type="getCategoryType(row.category)" size="small">
+                {{ row.category || '待确认' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="suggested_name" label="建议名" min-width="200" />
+          <el-table-column prop="status" label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="getStatusType(row.status)" size="small">
+                {{ getStatusText(row.status) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="created_at" label="创建时间" width="180" />
+          <el-table-column label="操作" width="210" fixed="right">
+            <template #default="{ row }">
+              <el-button type="primary" size="small" @click="viewDetail(row)">
+                查看
+              </el-button>
+              <el-button
+                v-if="row.can_undo"
+                type="warning"
+                size="small"
+                :loading="undoingId === row.session_id"
+                @click="undoExecution(row)"
+              >
+                撤销
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <!-- 移动端卡片列表（<768px 显示） -->
+      <div v-if="!error && (loading || history.length)" class="history-cards" v-loading="loading">
+        <p v-if="!loading && history.length === 0" class="cards-empty">暂无处理记录</p>
+        <article v-for="row in history" :key="row.session_id" class="history-card">
+          <div class="card-top">
+            <div class="card-file">
+              <strong class="card-filename">{{ getFileName(row.execution?.dest_path || row.source_path) }}</strong>
+              <span class="card-suggest">{{ row.suggested_name }}</span>
+            </div>
+            <div class="card-tags">
+              <el-tag :type="getCategoryType(row.category)" size="small">
+                {{ row.category || '待确认' }}
+              </el-tag>
+              <el-tag :type="getStatusType(row.status)" size="small">
+                {{ getStatusText(row.status) }}
+              </el-tag>
+            </div>
+          </div>
+          <div class="card-meta">
+            <span class="card-id">{{ row.session_id }}</span>
+            <span class="card-date">{{ row.created_at }}</span>
+          </div>
+          <div class="card-actions">
+            <el-button type="primary" size="small" @click="viewDetail(row)">查看</el-button>
             <el-button
               v-if="row.can_undo"
               type="warning"
@@ -48,9 +95,9 @@
             >
               撤销
             </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+          </div>
+        </article>
+      </div>
     </el-card>
   </div>
 </template>
@@ -63,12 +110,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { getHistory, getSession, undoSession } from '../services/api'
 import { useFileStore } from '../stores/fileStore'
 import type { HistoryItem } from '../types'
+import DataState from '../components/DataState.vue'
 
 const router = useRouter()
 const fileStore = useFileStore()
 const history = ref<HistoryItem[]>([])
 const loading = ref(false)
 const undoingId = ref('')
+const error = ref('')
 
 onMounted(() => {
   loadHistory()
@@ -76,10 +125,12 @@ onMounted(() => {
 
 async function loadHistory() {
   loading.value = true
+  error.value = ''
   try {
     history.value = await getHistory(undefined, 50)
   } catch (e: any) {
-    ElMessage.error(`加载失败: ${e.message}`)
+    error.value = e?.message || '处理记录加载失败'
+    ElMessage.error(`加载失败: ${error.value}`)
   } finally {
     loading.value = false
   }
@@ -182,14 +233,13 @@ async function undoExecution(row: HistoryItem) {
   gap: 8px;
 }
 
-/* 表格样式统一为暗色主题 */
 :deep(.el-table) {
-  --el-table-bg-color: #16161e;
-  --el-table-tr-bg-color: #16161e;
-  --el-table-header-bg-color: #1a1a24;
-  --el-table-row-hover-bg-color: rgba(16, 185, 129, 0.08);
-  --el-table-border-color: rgba(255, 255, 255, 0.06);
-  --el-table-text-color: #a1a1aa;
+  --el-table-bg-color: var(--bg-surface);
+  --el-table-tr-bg-color: var(--bg-surface);
+  --el-table-header-bg-color: var(--bg-elevated);
+  --el-table-row-hover-bg-color: var(--bg-hover);
+  --el-table-border-color: var(--border-subtle);
+  --el-table-text-color: var(--text-secondary);
   --el-table-header-text-color: #71717a;
 }
 
@@ -207,12 +257,17 @@ async function undoExecution(row: HistoryItem) {
 }
 
 :deep(.el-table th.el-table__cell) {
-  background: #1a1a24 !important;
-  border-bottom-color: rgba(255, 255, 255, 0.06);
+  background: var(--bg-elevated) !important;
+  border-bottom-color: var(--border-subtle);
 }
 
 :deep(.el-table__body tr:hover > td.el-table__cell) {
-  background: rgba(16, 185, 129, 0.08) !important;
+  background: var(--bg-hover) !important;
+}
+
+.history-empty-icon {
+  color: var(--accent);
+  font-size: 34px;
 }
 
 /* 分页样式 */
@@ -245,5 +300,94 @@ async function undoExecution(row: HistoryItem) {
 
 :deep(.el-table__row--striped) {
   background: var(--bg-base) !important;
+}
+
+/* 移动端卡片列表：桌面隐藏，<768px 显示 */
+.history-cards {
+  display: none;
+}
+
+.history-card {
+  padding: 14px;
+  margin-bottom: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+}
+
+.card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.card-file {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.card-filename {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.card-suggest {
+  font-size: 12px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.card-tags {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.card-meta {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.card-id {
+  font-family: var(--font-mono);
+}
+
+.card-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.cards-empty {
+  padding: 24px 0;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+@media (max-width: 767px) {
+  .history-table {
+    display: none;
+  }
+
+  .history-cards {
+    display: block;
+  }
+
+  .history-card .el-button {
+    min-width: 88px;
+  }
 }
 </style>
