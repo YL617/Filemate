@@ -255,12 +255,14 @@ def test_recover_after_interrupted_archive(
     # 模拟崩溃现场：文件已归档，但 execution record 停在 pending
     dest.parent.mkdir(parents=True, exist_ok=True)
     source.rename(dest)
-    storage.start_execution(
+    pending, created = storage.start_execution(
         session_id="session-exec",
         source_path=str(source),
         dest_path=str(dest),
         input_snapshot={"source_path": str(source), "source_exists": False},
     )
+    assert created is True
+    assert pending["status"] == "pending"
 
     executor = ConfirmationExecutor(
         storage=storage,
@@ -270,6 +272,9 @@ def test_recover_after_interrupted_archive(
     applied = executor.execute(session)
 
     assert applied["status"] == "applied"
-    assert dest.exists()
+    assert applied["execution_id"] == pending["execution_id"]
+    assert applied["idempotent"] is True
+    assert dest.read_bytes() == b"content"
     assert not source.exists()
     assert storage.get_session("session-exec")["status"] == "confirmed"
+    assert len(storage.list_execution_records("session-exec")) == 1
