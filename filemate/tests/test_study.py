@@ -106,6 +106,11 @@ def test_check_answer_handles_choice_fill_and_short_answer() -> None:
     )
 
 
+def test_short_answer_single_char_matches_exact() -> None:
+    assert check_answer({"question_type": "short_answer", "answer": "2"}, "2")
+    assert check_answer({"question_type": "short_answer", "answer": "2"}, "答案是 2")
+
+
 def test_review_schedule_boundaries() -> None:
     today = date(2026, 8, 8)
 

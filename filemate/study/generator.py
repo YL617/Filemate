@@ -236,6 +236,8 @@ def check_answer(question: Any, user_answer: str) -> bool:
         return bool(submitted) and (answer in submitted or submitted in answer)
     answer_tokens = [w for w in re.split(r"[\s，。；、,.;]+", answer) if len(w) > 1]
     if not answer_tokens:
-        return False
+        if not submitted:
+            return False
+        return answer in submitted or submitted in answer
     matched = sum(1 for token in answer_tokens if token in submitted)
     return matched / len(answer_tokens) >= 0.5
