@@ -38,6 +38,168 @@ def build_questions(scenario: str, target_role: str) -> list[str]:
     return questions
 
 
+def _parse_json_text(text: str) -> Any:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = "\n".join(cleaned.splitlines()[1:])
+    cleaned = cleaned.rstrip()
+    if cleaned.endswith("```"):
+        cleaned = "\n".join(cleaned.splitlines()[:-1])
+    return json.loads(cleaned.strip())
+
+
+def select_question_ids_with_llm(
+    llm: Any,
+    candidates: list[dict[str, Any]],
+    *,
+    target_role: str,
+    scenario: str,
+    difficulty: str,
+    limit: int = 5,
+) -> list[str]:
+    """让 AI 从题库中挑选最匹配的题目 ID；失败或无效时返回空列表。"""
+    if llm is None or not candidates or not hasattr(llm, "call"):
+        return []
+
+    lines = "\n".join(
+        f"{index}. [{item['id']}] {str(item.get('text', ''))[:120]}"
+        for index, item in enumerate(candidates, start=1)
+    )
+    prompt = (
+        "你是资深模拟面试官。根据面试场景、难度和目标岗位，从候选题目中"
+        "挑选最合适的题目 ID，只返回 JSON 字符串数组，不要 Markdown，不要解释。"
+    )
+    user_prompt = (
+        f"场景：{scenario}\n难度：{difficulty}\n目标岗位/方向：{target_role}\n"
+        f"需要选出 {limit} 道：\n{lines}"
+    )
+    try:
+        text = llm.call(
+            messages=[{"role": "system", "content": prompt}, {"role": "user", "content": user_prompt}],
+            max_tokens=2048,
+            temperature=0.2,
+        )
+        data = _parse_json_text(text)
+    except Exception:  # noqa: BLE001 - LLM 失败时回退到确定性选题
+        return []
+
+    if not isinstance(data, list):
+        return []
+    valid_ids = {str(item["id"]) for item in candidates}
+    picked: list[str] = []
+    for item in data:
+        question_id = str(item)
+        if question_id in valid_ids and question_id not in picked:
+            picked.append(question_id)
+        if len(picked) >= limit:
+            break
+    return picked
+
+
+def generate_interview_questions_with_llm(
+    llm: Any,
+    *,
+    target_role: str,
+    scenario: str,
+    difficulty: str,
+    count: int,
+) -> list[str]:
+    """让 AI 针对性生成面试题；失败或无效时返回空列表。"""
+    if llm is None or count <= 0 or not hasattr(llm, "call"):
+        return []
+
+    prompt = (
+        "你是资深模拟面试官。请根据场景、难度和目标岗位生成针对性面试题，"
+        "只返回 JSON 字符串数组，不要 Markdown，不要解释。"
+    )
+    user_prompt = (
+        f"场景：{scenario}\n难度：{difficulty}\n目标岗位/方向：{target_role}\n"
+        f"生成 {count} 道题"
+    )
+    try:
+        text = llm.call(
+            messages=[{"role": "system", "content": prompt}, {"role": "user", "content": user_prompt}],
+            max_tokens=2048,
+            temperature=0.6,
+        )
+        data = _parse_json_text(text)
+    except Exception:  # noqa: BLE001 - LLM 失败时回退到静态题目
+        return []
+
+    if not isinstance(data, list):
+        return []
+    questions: list[str] = []
+    for item in data:
+        if isinstance(item, str) and item.strip() and item.strip() not in questions:
+            questions.append(item.strip())
+        if len(questions) >= count:
+            break
+    return questions
+
+
+def build_interview_questions(
+    storage: Any,
+    llm: Any,
+    *,
+    scenario: str,
+    difficulty: str,
+    target_role: str,
+    limit: int = 5,
+) -> tuple[list[str], list[str]]:
+    """AI 选题 + AI 补题 + 确定性回退，返回 (题目列表, 题库题目 ID 列表)。"""
+    candidates = storage.list_interview_questions(enabled=True)
+    selected_ids = select_question_ids_with_llm(
+        llm,
+        candidates,
+        target_role=target_role,
+        scenario=scenario,
+        difficulty=difficulty,
+        limit=limit,
+    )
+    by_id = {str(item["id"]): item for item in candidates}
+    questions = [by_id[question_id]["text"] for question_id in selected_ids if question_id in by_id]
+    question_ids = [question_id for question_id in selected_ids if question_id in by_id]
+    used_ids = set(question_ids)
+
+    for item in storage.select_interview_questions(
+        scenario=scenario,
+        difficulty=difficulty,
+        limit=limit,
+    ):
+        if len(questions) >= limit:
+            break
+        question_id = str(item["id"])
+        if question_id in used_ids:
+            continue
+        used_ids.add(question_id)
+        questions.append(item["text"])
+        question_ids.append(question_id)
+
+    missing = limit - len(questions)
+    if missing > 0:
+        for question in generate_interview_questions_with_llm(
+            llm,
+            target_role=target_role,
+            scenario=scenario,
+            difficulty=difficulty,
+            count=missing,
+        ):
+            if len(questions) >= limit:
+                break
+            if question not in questions:
+                questions.append(question)
+
+    missing = limit - len(questions)
+    if missing > 0:
+        for question in build_questions(scenario, target_role):
+            if len(questions) >= limit:
+                break
+            if question not in questions:
+                questions.append(question)
+
+    return questions[:limit], question_ids[:limit]
+
+
 class InterviewEvaluator:
     """使用 LLM 评估回答，失败时提供可用的规则回退。"""
 

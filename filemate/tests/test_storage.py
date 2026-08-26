@@ -56,8 +56,8 @@ class TestMigrationUpgrade:
         s = SQLiteStorage(db)
         s.init_schema()
 
-        assert s.get_schema_version() == 9
-        assert [m["version"] for m in s.list_migrations()] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        assert s.get_schema_version() == 12
+        assert [m["version"] for m in s.list_migrations()] == [1, 2, 3, 4, 5, 6, 7, 8, 12]
 
         conn = s._conn()
         tables = {
@@ -117,9 +117,9 @@ class TestSchemaInit:
             assert expected in names
 
     def test_versioned_migrations_applied(self, storage: SQLiteStorage) -> None:
-        assert storage.get_schema_version() == 9
+        assert storage.get_schema_version() == 12
         migrations = storage.list_migrations()
-        assert [item["version"] for item in migrations] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        assert [item["version"] for item in migrations] == [1, 2, 3, 4, 5, 6, 7, 8, 12]
         assert migrations[-1]["name"] == "interview_question_bank"
 
     def test_knowledge_tables_and_local_workspace_exist(
@@ -892,3 +892,12 @@ class TestInterviewQuestionBank:
         storage.ensure_interview_questions(rows)
         questions = storage.list_interview_questions()
         assert len(questions) == 2
+
+    def test_full_seed_is_72_and_idempotent(self, storage: SQLiteStorage) -> None:
+        from filemate.understanding.interview_bank_seed import SEED_QUESTIONS
+
+        assert len(SEED_QUESTIONS) == 72
+        storage.ensure_interview_questions(SEED_QUESTIONS)
+        storage.ensure_interview_questions(SEED_QUESTIONS)
+        questions = storage.list_interview_questions()
+        assert len(questions) == 72

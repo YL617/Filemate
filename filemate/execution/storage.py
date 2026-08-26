@@ -309,7 +309,7 @@ _MIGRATIONS = (
     (6, "persistent_study_plans", _STUDY_PLAN_SCHEMA),
     (7, "anonymous_product_feedback", _PRODUCT_FEEDBACK_SCHEMA),
     (8, "spaced_repetition", _SPACED_REPETITION_SCHEMA),
-    (9, "interview_question_bank", _INTERVIEW_BANK_SCHEMA),
+    (12, "interview_question_bank", _INTERVIEW_BANK_SCHEMA),
 )
 
 

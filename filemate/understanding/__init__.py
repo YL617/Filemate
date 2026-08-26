@@ -11,7 +11,13 @@ from .ai_tools import (
 )
 from .classifier import Classifier
 from .entity_extractor import EntityExtractor
-from .interview import InterviewEvaluator, build_questions
+from .interview import (
+    InterviewEvaluator,
+    build_interview_questions,
+    build_questions,
+    generate_interview_questions_with_llm,
+    select_question_ids_with_llm,
+)
 from .milestone_detector import MilestoneDetector
 from .namer import Namer
 
@@ -27,6 +33,9 @@ __all__ = [
     "NoteExtractor",
     "QuestionExtractor",
     "StudyPlanGenerator",
+    "build_interview_questions",
     "build_questions",
     "create_ai_tools",
+    "generate_interview_questions_with_llm",
+    "select_question_ids_with_llm",
 ]

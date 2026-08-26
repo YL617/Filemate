@@ -39,7 +39,7 @@ FileMate 是一个面向大学生的本地优先 AI 学习工作台。它把散�
 | 个人知识库 | 资料源、AI 产物、聊天上下文持久化；跨资料词法检索与引用 | `storage.py`、`retrieval.py`、`Knowledge.vue` |
 | 学习闭环 | 练习作答、自动错题本、掌握状态、间隔重复、今日复习队列 | `/quiz`、`/wrongbook`、`/review/today` |
 | 学习计划 | 根据考试日期生成日计划，持久记录每日完成状态，支持 CSV/ICS 导出 | `StudyPlan.vue` |
-| 模拟面试 | 求职、竞赛答辩、保研复试；四维评分；模型不可用时本地降级 | `interview.py`、`Interview.vue` |
+| 模拟面试 | 求职、竞赛答辩、保研复试；72 题题库、AI 选题与补题；四维评分；模型不可用时本地降级 | `interview.py`、`Interview.vue` |
 | 成长数据 | 资料、练习、错题、计划、面试等本地统计；匿名反馈导出 | `Growth.vue`、`evaluation/` |
 | 多端工程 | Vue Web、FastAPI Sidecar、Tauri 2 桌面工程、CLI | `filemate/web/`、`server.py`、`main.py` |
 

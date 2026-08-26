@@ -457,7 +457,7 @@ AI 生成接口成功时同时返回 `ctx_id`、`source_id`、`artifact_id`。�
 | `GET` | `/evaluation/feedback/export.csv` | 导出匿名反馈 CSV | 无 |
 | `GET` | `/api/health` | 健康检查 | 无 |
 
-说明：`POST /interviews` 创建面试时按场景和难度从题库选题，响应新增 `question_ids`；评分响应新增 `scoring_mode`，取值为 `llm` 或 `local_fallback`。
+说明：`POST /interviews` 创建面试时优先由 AI 根据场景、难度和目标岗位从题库选题，题库不足或匹配不足时由 AI 补题，LLM 不可用时回退到确定性选题和静态题；响应新增 `question_ids`。评分响应新增 `scoring_mode`，取值为 `llm` 或 `local_fallback`。
 
 ---
 

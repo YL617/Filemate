@@ -705,8 +705,10 @@ def test_today_review_combines_plan_and_wrong_question(
 
 def test_mock_interview_progresses_and_persists(
     server_module: tuple[ModuleType, SQLiteStorage],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module, storage = server_module
+    monkeypatch.setenv("LLM_API_KEY", "")
     with TestClient(module.app) as client:
         started = client.post(
             "/interviews",
@@ -755,8 +757,10 @@ def test_interview_question_bank_crud(
 
 def test_start_interview_uses_bank_and_scoring_mode(
     server_module: tuple[ModuleType, SQLiteStorage],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module, storage = server_module
+    monkeypatch.setenv("LLM_API_KEY", "")
     qid = storage.create_interview_question(
         scenario="求职面试",
         difficulty="标准",
@@ -775,6 +779,46 @@ def test_start_interview_uses_bank_and_scoring_mode(
     assert started["question_ids"] == [qid]
     assert started["questions"][0] == "请介绍一个你解决复杂问题的经历，并说明结果。"
     assert answered["latest_evaluation"]["scoring_mode"] in {"llm", "local_fallback"}
+
+
+def test_start_interview_uses_ai_selection_when_llm_available(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, storage = server_module
+    ids = [
+        storage.create_interview_question(
+            scenario="求职面试",
+            difficulty="标准",
+            text=f"AI 选题题 {index}",
+        )
+        for index in range(5)
+    ]
+
+    import filemate.llm_client as llm_client_module
+
+    class FakeLLM:
+        def call(self, **kwargs):
+            return json.dumps([ids[0], ids[1], ids[2]])
+
+    monkeypatch.setattr(
+        llm_client_module,
+        "LLMClient",
+        lambda config: FakeLLM(),
+    )
+
+    with TestClient(module.app) as client:
+        started = client.post(
+            "/interviews",
+            json={
+                "target_role": "Java 后端",
+                "scenario": "求职面试",
+                "difficulty": "标准",
+            },
+        ).json()["data"]
+
+    assert started["question_ids"][:3] == ids[:3]
+    assert len(started["questions"]) == 5
 
 
 def test_delete_source_cleans_managed_inbox_file(
