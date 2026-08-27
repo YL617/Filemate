@@ -859,7 +859,7 @@ wheels = [
 
 [[package]]
 name = "filemate-campus-twin"
-version = "1.2.0"
+version = "1.3.0a0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
