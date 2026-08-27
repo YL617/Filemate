@@ -313,7 +313,7 @@ storage = SQLiteStorage(db_path="filemate.db")
 storage.init_schema()
 ```
 
-**数据库版本：** `schema_migrations` 记录已应用迁移，当前 schema 为 v8。`init_schema()` 可对旧数据库安全、幂等升级。
+**数据库版本：** `schema_migrations` 记录已应用迁移，当前 schema 为 v9。`init_schema()` 可对旧数据库安全、幂等升级。
 
 **核心表：**
 
@@ -332,6 +332,7 @@ storage.init_schema()
 | `quiz_attempts` | 用户作答、得分和反馈证据 |
 | `wrong_questions` | 错题、掌握状态和间隔重复参数 |
 | `interview_sessions` / `interview_turns` | 模拟面试流程与评分记录 |
+| `interview_questions` | 可维护面试题库、启停状态与场景/难度过滤 |
 | `study_plans` | 学习计划、每日完成状态和考试目标 |
 | `product_feedback` | 匿名产品反馈哈希与统计上下文 |
 
@@ -357,6 +358,8 @@ storage.init_schema()
 | `save_artifact` | `(*, artifact_type, content, source_id=None, ...) -> str` | 保存资料派生的 AI 产物 |
 | `save_document_context` | `(*, ctx_id, context_text, ...) -> None` | 保存可恢复问答上下文 |
 | `append_context_messages` | `(ctx_id, messages) -> list[dict]` | 原子追加并返回聊天历史 |
+| `list_interview_questions` | `(*, scenario=None, difficulty=None, enabled=None, limit=100) -> list[dict]` | 筛选面试题库 |
+| `create_interview_question` | `(*, scenario, difficulty, text, enabled=1) -> str` | 新增题目；重复内容拒绝 |
 
 **边界行为：**
 - `update_session` 空 `kwargs` → 无操作
@@ -447,11 +450,17 @@ AI 生成接口成功时同时返回 `ctx_id`、`source_id`、`artifact_id`。�
 | `POST` | `/interviews` | 创建模拟面试 | 写入 `interview_sessions` |
 | `GET` | `/interviews/{interview_id}` | 获取面试进度 | 无 |
 | `POST` | `/interviews/{interview_id}/answers` | 提交面试回答并评分 | 写入 `interview_turns` |
+| `GET` | `/interview/questions` | 列出面试题库题目 | 支持 `scenario` / `difficulty` / `enabled` 过滤，`limit` 上限 500 |
+| `POST` | `/interview/questions` | 新增题库题目 | 写入 `interview_questions` |
+| `PATCH` | `/interview/questions/{question_id}` | 更新题库题目 | 更新 `interview_questions` |
+| `DELETE` | `/interview/questions/{question_id}` | 删除题库题目 | 删除 `interview_questions` |
 | `GET` | `/analytics/overview` | 成长数据聚合 | 无 |
 | `POST` | `/evaluation/feedback` | 提交匿名产品反馈 | 写入 `product_feedback` |
 | `GET` | `/evaluation/feedback/summary` | 反馈汇总 | 无 |
 | `GET` | `/evaluation/feedback/export.csv` | 导出匿名反馈 CSV | 无 |
 | `GET` | `/api/health` | 健康检查 | 无 |
+
+说明：`POST /interviews` 创建面试时按场景和难度选择最近维护的启用题目，响应和持久化记录均包含与 `questions` 等长的 `question_ids`；静态回退题及 v8 旧会话对应 `null`。评分响应新增 `scoring_mode`，取值为 `llm` 或 `local_fallback`。
 
 ---
 
@@ -465,3 +474,4 @@ AI 生成接口成功时同时返回 `ctx_id`、`source_id`、`artifact_id`。�
 | 2026-08-09 | v1.2 | 增加确认执行、操作快照、幂等保护与撤销 API | Codex |
 | 2026-08-09 | v1.3 | 校准当前 v8 数据模型、归档冲突策略与线程安全说明 | Codex |
 | 2026-08-16 | v1.4 | 补齐现役 HTTP 路由表，修正命名阈值 20→15 | 杨乐 |
+| 2026-08-26 | v1.5 | 增加 SQLite v9 面试题库、CRUD 与选题来源合同 | YL / Codex |
