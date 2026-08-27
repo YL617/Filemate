@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 from typing import Any
@@ -102,6 +103,32 @@ def _dedupe(
     return unique[:count]
 
 
+def _parse_llm_json(text: str) -> Any:
+    """Strip optional markdown fences and parse the LLM JSON reply."""
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        cleaned = "\n".join(lines[1:])
+    cleaned = cleaned.rstrip()
+    if cleaned.endswith("```"):
+        cleaned = "\n".join(cleaned.splitlines()[:-1])
+    cleaned = cleaned.strip()
+    return json.loads(cleaned)
+
+
+def _call_llm_for_json(llm: Any, **kwargs: Any) -> Any:
+    """Call either a plain callable or an LLMClient object and parse JSON."""
+    if hasattr(llm, "call") and callable(llm.call):
+        text = llm.call(**kwargs)
+        try:
+            return _parse_llm_json(text)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"AI 出题失败：模型返回无法解析为 JSON: {text[:200]!r}"
+            ) from exc
+    return llm(**kwargs)
+
+
 def generate_questions_with_llm(
     llm: Callable | None,
     subject: str,
@@ -128,7 +155,8 @@ def generate_questions_with_llm(
     if llm is None:
         raise RuntimeError("AI 出题失败：未配置或无法连接 LLM，且已关闭模板兜底")
     try:
-        raw = llm(
+        raw = _call_llm_for_json(
+            llm,
             prompt=GENERATE_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_prompt}],
             max_tokens=2048,
@@ -208,6 +236,8 @@ def check_answer(question: Any, user_answer: str) -> bool:
         return bool(submitted) and (answer in submitted or submitted in answer)
     answer_tokens = [w for w in re.split(r"[\s，。；、,.;]+", answer) if len(w) > 1]
     if not answer_tokens:
-        return False
+        if not submitted:
+            return False
+        return answer in submitted or submitted in answer
     matched = sum(1 for token in answer_tokens if token in submitted)
     return matched / len(answer_tokens) >= 0.5

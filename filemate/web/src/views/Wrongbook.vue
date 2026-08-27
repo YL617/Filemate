@@ -10,7 +10,20 @@
     <article v-for="item in items" :key="item.wrong_id" class="wrong-card">
       <div class="meta"><span>{{ item.question.type }}</span><span>错误 {{ item.error_count }} 次</span><span>复习 {{ item.review_count }} 次</span><span>{{ reviewLabel(item) }}</span></div>
       <h2>{{ item.question.question }}</h2>
-      <p v-if="item.question.explanation">{{ item.question.explanation }}</p>
+      <div v-if="item.question.options?.length" class="options">
+        <span v-for="(option, oi) in item.question.options" :key="oi" class="option">{{ option }}</span>
+      </div>
+      <button
+        v-if="item.question.explanation"
+        class="analysis-toggle"
+        type="button"
+        @click="expanded[item.wrong_id] = !expanded[item.wrong_id]"
+      >
+        {{ expanded[item.wrong_id] ? '收起解析' : '查看解析' }}
+      </button>
+      <p v-if="expanded[item.wrong_id] && item.question.explanation" class="analysis">
+        {{ item.question.explanation }}
+      </p>
       <small>最近答案：{{ item.latest_answer || '未填写' }}</small>
       <div v-if="!showMastered" class="retry">
         <input v-model="answers[item.wrong_id]" :name="`retry_${item.wrong_id}`" autocomplete="off" :aria-label="`重新回答：${item.question.question}`" placeholder="重新作答…" @keyup.enter="retry(item)" />
@@ -33,6 +46,7 @@ const error = ref('')
 const showMastered = ref(false)
 const answers = ref<Record<string, string>>({})
 const results = ref<Record<string, string>>({})
+const expanded = ref<Record<string, boolean>>({})
 const load = async () => {
   loading.value = true
   error.value = ''
@@ -66,6 +80,10 @@ h1 { margin: 3px 0 8px; font-size: 30px; } header p { margin: 0; color: var(--te
 .filter { border: 1px solid var(--accent-border); background: var(--accent-soft); color: var(--accent); padding: 10px 16px; border-radius: 10px; cursor: pointer; }
 .wrong-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 20px; margin-bottom: 14px; }
 .wrong-card h2 { font-size: 17px; margin: 12px 0; }.wrong-card p,.wrong-card small { color: var(--text-secondary); }
+.options { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.option { background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 7px 10px; font-size: 13px; color: var(--text-primary); }
+.analysis-toggle { margin: 8px 0; padding: 6px 12px; border: 1px solid var(--accent-border); border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 12px; cursor: pointer; }
+.analysis { margin-top: 8px; padding: 12px; background: var(--bg-surface); border: 1px dashed var(--border-subtle); border-radius: 10px; }
 .meta { display: flex; gap: 8px; flex-wrap: wrap; }.meta span { background: var(--accent-soft); color: var(--accent); padding: 4px 9px; border-radius: 999px; font-size: 12px; }
 .empty { padding: 70px; text-align: center; background: var(--bg-surface); border: 1px dashed var(--border-default); border-radius: 14px; color: var(--text-muted); }
 .retry { display: flex; gap: 8px; margin-top: 14px; }.retry input { flex: 1; border: 1px solid var(--border-default); border-radius: 9px; padding: 10px 12px; background: var(--bg-elevated); }.retry button { border: 0; border-radius: 9px; padding: 10px 14px; color: #fff; background: var(--accent); }.retry button:disabled { opacity: .45; }.result { color: var(--accent) !important; font-weight: 600; }
