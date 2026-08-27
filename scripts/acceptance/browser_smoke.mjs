@@ -12,7 +12,8 @@ fs.mkdirSync(outDir, { recursive: true })
 
 const routes = [
   '/', '/today', '/import', '/classification', '/naming', '/schedule', '/history',
-  '/ai-tools', '/study-plan', '/wrongbook', '/interview', '/growth', '/knowledge'
+  '/ai-tools', '/study-plan', '/wrongbook', '/interview', '/interview-bank',
+  '/growth', '/knowledge'
 ]
 
 const browser = await chromium.launch()
@@ -52,7 +53,7 @@ await browser.close()
 
 const ctx = await request.newContext({ baseURL: api, timeout: 15000 })
 const apiResults = []
-for (const ep of ['/api/health', '/sessions', '/knowledge/sources', '/wrongbook', '/review/today', '/study-plans', '/analytics/overview', '/evaluation/feedback/summary']) {
+for (const ep of ['/api/health', '/sessions', '/knowledge/sources', '/wrongbook', '/review/today', '/study-plans', '/interview/questions', '/analytics/overview', '/evaluation/feedback/summary']) {
   try {
     const r = await ctx.get(ep)
     apiResults.push({ endpoint: ep, status: r.status(), ok: r.ok() })

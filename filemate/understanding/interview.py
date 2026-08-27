@@ -68,6 +68,7 @@ JSON 结构：{{"score": 0-100, "dimensions": {{"内容": 0-100, "结构": 0-100
                 "score": max(0.0, min(100.0, float(result["score"]))),
                 "dimensions": dimensions,
                 "feedback": str(result.get("feedback", "请补充具体行动与结果。")),
+                "scoring_mode": "llm",
             }
         except Exception:  # noqa: BLE001 - 面试演示必须在模型不可用时降级
             length_score = min(90.0, 35.0 + len(answer.strip()) * 0.35)
@@ -80,4 +81,5 @@ JSON 结构：{{"score": 0-100, "dimensions": {{"内容": 0-100, "结构": 0-100
                     "岗位匹配": max(30.0, round(length_score - 12, 2)),
                 },
                 "feedback": "建议使用“情境—行动—结果”结构，并补充可量化成果。",
+                "scoring_mode": "local_fallback",
             }

@@ -95,8 +95,8 @@ FileMate 是一个面向大学生的本地优先 AI 学习工作台。它把散�
 
 - Windows 队友执行 `scripts/dev.ps1 -Setup` 后可启动前后端。
 - 所有高影响文件操作必须先预览确认，不覆盖已有目标，并可撤销。
-- 数据写入 SQLite v8，关闭并重启后仍能读取。
-- 非 e2e 后端测试不得少于当前 `314 passed` 基线；新增功能必须新增测试。
+- 数据写入 SQLite v9，关闭并重启后仍能读取。
+- 非 e2e 后端测试不得少于当前 `370 passed` 基线；新增功能必须新增测试。
 - `npm run build`、CI 静态检查和离线评测通过。
 - P0 缺陷为 0；P1 缺陷必须有负责人、复现步骤和明确截止日期。
 - README、API 文档和实际路由一致；不把计划功能写成已实现。
@@ -148,7 +148,7 @@ flowchart LR
     A --> E["确认执行器：预览 / 确认 / 回滚 / 撤销"]
     A --> K["学习服务：检索 / 练习 / 错题 / 计划 / 面试"]
     E --> F["本地文件系统 / ICS"]
-    P --> S["SQLite v8"]
+    P --> S["SQLite v9"]
     E --> S
     K --> S
 ```
@@ -258,7 +258,7 @@ FileMate/
 | `server.py` | HTTP 合同、参数校验、服务编排、统一错误 | 重复实现底层领域算法 |
 | `web` | 用户交互、状态反馈、响应式布局、API 调用 | 直接读取 SQLite 或本地任意路径 |
 
-## 7. SQLite v8 数据模型
+## 7. SQLite v9 数据模型
 
 数据库由 `schema_migrations` 管理，`init_schema()` 必须保持幂等。不要直接修改已经发布的迁移；新增字段或表必须增加新版本迁移和升级测试。
 
@@ -272,6 +272,7 @@ FileMate/
 | v6 | `study_plans` | 学习计划和每日完成状态 |
 | v7 | `product_feedback` | 匿名正负反馈和统计 |
 | v8 | 错题间隔重复字段与索引 | 下次复习时间、间隔、难度因子、复习次数 |
+| v9 | `interview_questions`、`interview_sessions.question_ids` | 可维护面试题库与选题来源追踪 |
 
 关键关系：
 
@@ -337,6 +338,8 @@ FileMate/
 | POST | `/interviews` | 创建模拟面试 |
 | GET | `/interviews/{id}` | 获取面试进度 |
 | POST | `/interviews/{id}/answers` | 提交回答并评分 |
+| GET/POST | `/interview/questions` | 筛选题库或新增题目 |
+| PATCH/DELETE | `/interview/questions/{id}` | 更新、启停或删除题目 |
 | GET | `/analytics/overview` | 获取真实学习行为统计 |
 | POST | `/evaluation/feedback` | 保存匿名产品反馈 |
 | GET | `/evaluation/feedback/summary` | 获取反馈摘要 |
@@ -359,6 +362,7 @@ FileMate/
 | `/study-plan` | AI 学习计划 | 生成、查看和完成每日任务 |
 | `/wrongbook` | 错题复盘 | 错题、掌握状态和复习安排 |
 | `/interview` | 模拟面试 | 场景、回答、四维评分与反馈 |
+| `/interview-bank` | 题库管理 | 筛选、新增、编辑、启停和删除面试题目 |
 | `/growth` | 成长数据 | 真实行为统计与匿名反馈导出 |
 | `/knowledge` | 个人知识库 | 资料、产物、跨资料检索和编辑 |
 
@@ -390,6 +394,9 @@ powershell -ExecutionPolicy Bypass -File scripts/stop-dev.ps1
 
 # 仅诊断环境
 powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1
+
+# 首次载入经审核的 45 道面试种子题；重复执行不会重复写入
+uv run python scripts/seed_interview_bank.py
 ```
 
 也可双击 `启动FileMate.bat`。启动后：
@@ -464,9 +471,9 @@ Set-Location ../..
 uv run python evaluation/run_evaluation.py --output _working/evaluation-report.json
 ```
 
-2026-08-13 发布基线：
+2026-08-26 发布基线：
 
-- 后端：`314 passed, 17 skipped, 5 deselected`。
+- 后端：`370 passed, 18 skipped, 5 deselected`。
 - SQLite 压力测试：10 线程、5000 次操作、0 错误。
 - Vue 类型检查和 Vite 生产构建通过。
 - GitHub Actions 后端与前端任务通过。

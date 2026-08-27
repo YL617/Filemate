@@ -9,6 +9,11 @@ from pathlib import Path
 import pytest
 
 from filemate.execution.storage import _MIGRATIONS, SQLiteStorage
+from filemate.understanding.interview_bank_seed import (
+    DIFFICULTIES,
+    SCENARIOS,
+    SEED_QUESTIONS,
+)
 
 
 @pytest.fixture()
@@ -49,15 +54,24 @@ def _apply_migrations_upto(db_path: Path, upto: int) -> None:
 
 class TestMigrationUpgrade:
     def test_upgrade_from_old_version(self, tmp_path: Path) -> None:
-        """v5 旧库逐级升级到 v8，且 v6~v8 的新表/新字段确实建立。"""
+        """v5 旧库逐级升级到 v9，且 v6~v9 的表和字段确实建立。"""
         db = tmp_path / "old.db"
         _apply_migrations_upto(db, 5)
+        legacy = sqlite3.connect(db)
+        legacy.execute(
+            """INSERT INTO interview_sessions
+               (interview_id, target_role, scenario, difficulty, questions)
+               VALUES ('legacy-interview', '后端开发', '求职面试', '标准',
+                       '["旧题一", "旧题二"]')"""
+        )
+        legacy.commit()
+        legacy.close()
 
         s = SQLiteStorage(db)
         s.init_schema()
 
-        assert s.get_schema_version() == 8
-        assert [m["version"] for m in s.list_migrations()] == [1, 2, 3, 4, 5, 6, 7, 8]
+        assert s.get_schema_version() == 9
+        assert [m["version"] for m in s.list_migrations()] == list(range(1, 10))
 
         conn = s._conn()
         tables = {
@@ -66,8 +80,16 @@ class TestMigrationUpgrade:
         }
         assert "study_plans" in tables       # v6
         assert "product_feedback" in tables  # v7
+        assert "interview_questions" in tables  # v9
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(wrong_questions)")}
         assert "next_review_at" in cols       # v8 字段
+        interview_cols = {
+            r["name"] for r in conn.execute("PRAGMA table_info(interview_sessions)")
+        }
+        assert "question_ids" in interview_cols  # v9 字段
+        upgraded_interview = s.get_interview("legacy-interview")
+        assert upgraded_interview is not None
+        assert upgraded_interview["question_ids"] == [None, None]
         s.close()
 
     def test_failed_migration_rolls_back(self, tmp_path: Path) -> None:
@@ -116,10 +138,10 @@ class TestSchemaInit:
             assert expected in names
 
     def test_versioned_migrations_applied(self, storage: SQLiteStorage) -> None:
-        assert storage.get_schema_version() == 8
+        assert storage.get_schema_version() == 9
         migrations = storage.list_migrations()
-        assert [item["version"] for item in migrations] == [1, 2, 3, 4, 5, 6, 7, 8]
-        assert migrations[-1]["name"] == "spaced_repetition"
+        assert [item["version"] for item in migrations] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        assert migrations[-1]["name"] == "interview_question_bank"
 
     def test_knowledge_tables_and_local_workspace_exist(
         self,
@@ -143,6 +165,7 @@ class TestSchemaInit:
             "wrong_questions",
             "interview_sessions",
             "interview_turns",
+            "interview_questions",
             "study_plans",
             "product_feedback",
         } <= tables
@@ -834,3 +857,93 @@ class TestReversibleExecutionStorage:
         assert created is True
         assert retried["execution_id"] != failed["execution_id"]
         assert storage.get_session("exec-3")["status"] == "failed"
+
+
+class TestInterviewQuestionBank:
+    def test_crud_and_unique(self, storage: SQLiteStorage) -> None:
+        qid = storage.create_interview_question(
+            scenario="求职面试",
+            difficulty="入门",
+            text="请做一分钟自我介绍。",
+        )
+        assert storage.get_interview_question(qid)["text"] == "请做一分钟自我介绍。"
+
+        with pytest.raises(ValueError, match="题目已存在"):
+            storage.create_interview_question(
+                scenario="求职面试",
+                difficulty="入门",
+                text="请做一分钟自我介绍。",
+            )
+
+        assert storage.update_interview_question(
+            qid, text="请做两分钟自我介绍。"
+        )
+        assert storage.get_interview_question(qid)["text"] == "请做两分钟自我介绍。"
+        assert storage.delete_interview_question(qid)
+        assert storage.get_interview_question(qid) is None
+
+    @pytest.mark.parametrize(
+        ("updates", "message"),
+        [
+            ({"text": "  "}, "不能为空"),
+            ({"scenario": "自由讨论"}, "不支持的面试场景"),
+            ({"difficulty": "困难"}, "不支持的面试难度"),
+        ],
+    )
+    def test_update_rejects_invalid_values(
+        self,
+        storage: SQLiteStorage,
+        updates: dict[str, object],
+        message: str,
+    ) -> None:
+        qid = storage.create_interview_question(
+            scenario="求职面试",
+            difficulty="入门",
+            text="请做一分钟自我介绍。",
+        )
+
+        with pytest.raises(ValueError, match=message):
+            storage.update_interview_question(qid, **updates)
+
+    def test_select_filters_enabled(self, storage: SQLiteStorage) -> None:
+        disabled_id = storage.create_interview_question(
+            scenario="竞赛答辩",
+            difficulty="标准",
+            text="请介绍项目团队分工。",
+            enabled=0,
+        )
+        created_ids = [
+            storage.create_interview_question(
+                scenario="竞赛答辩",
+                difficulty="标准",
+                text=f"维护题目 {index}",
+            )
+            for index in range(6)
+        ]
+        selected = storage.select_interview_questions(
+            scenario="竞赛答辩",
+            difficulty="标准",
+            limit=5,
+        )
+        ids = {item["id"] for item in selected}
+        assert len(ids) == 5
+        assert created_ids[-1] in ids
+        assert created_ids[0] not in ids
+        assert disabled_id not in ids
+
+    def test_seed_is_idempotent(self, storage: SQLiteStorage) -> None:
+        first_ids = storage.ensure_interview_questions(SEED_QUESTIONS)
+        repeated_ids = storage.ensure_interview_questions(SEED_QUESTIONS)
+        questions = storage.list_interview_questions()
+
+        assert first_ids == repeated_ids
+        assert len(first_ids) == len(questions) == 45
+        for scenario in SCENARIOS:
+            for difficulty in DIFFICULTIES:
+                matching = [
+                    item
+                    for item in questions
+                    if item["scenario"] == scenario
+                    and item["difficulty"] == difficulty
+                ]
+                assert len(matching) == 5
