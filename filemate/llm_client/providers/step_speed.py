@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 
 import requests
 
-from .base import BaseLLMProvider
 from ..config import LLMConfig
 from ..exceptions import (
     LLMAPIError,
@@ -16,6 +14,7 @@ from ..exceptions import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
+from .base import BaseLLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +80,10 @@ class StepSpeedProvider(BaseLLMProvider):
                 "temperature": temperature,
                 "max_tokens": max_tokens,
             }
+            if "deepseek" in base_url_lower:
+                # DeepSeek 推理模型默认先输出 reasoning_content，会占用 max_tokens。
+                # 项目内多数调用依赖最终 content，关闭思考可避免短输出任务返回空内容。
+                payload["thinking"] = {"type": "disabled"}
             if response_format:
                 payload["response_format"] = response_format
 

@@ -22,7 +22,7 @@
         role="tab"
         :aria-selected="activeTab === tab.id"
         :class="{ active: activeTab === tab.id }"
-        @click="activeTab = tab.id"
+        @click="switchTab(tab.id)"
       >
         <el-icon class="tab-icon"><component :is="tab.icon" /></el-icon>
         <span class="tab-label">{{ tab.label }}</span>
@@ -315,6 +315,19 @@ const tabs = [
 ]
 
 const activeTab = ref('summary')
+const switchTab = (tabId: string) => {
+  if (tabId === activeTab.value) return
+  if (tabId === 'chat' && result.value?.ctx_id) {
+    activeTab.value = 'chat'
+    return
+  }
+  activeTab.value = tabId
+  result.value = null
+  error.value = ''
+  chatHistory.value = []
+  questionAnswers.value = {}
+  questionResults.value = {}
+}
 const selectedFile = ref<File | null>(null)
 const isDragover = ref(false)
 const isProcessing = ref(false)
@@ -451,7 +464,7 @@ const sendChatMessage = async () => {
     const response = await askAI(
       result.value.ctx_id,
       question,
-      chatHistory.value.slice(0, -2),
+      chatHistory.value.slice(0, -1),
       chatMode.value
     )
     const sources = response.citations?.length
