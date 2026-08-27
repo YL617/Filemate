@@ -1504,22 +1504,22 @@ def delete_interview_question(question_id: str):
 @app.post("/interviews", response_model=ApiResponse)
 def start_interview(request: InterviewStartRequest):
     """创建一场可持续复盘的模拟面试。"""
-    from filemate.understanding import build_questions
+    from filemate.llm_client import LLMClient, LLMConfig
+    from filemate.understanding import build_interview_questions
 
-    bank_questions = _storage.select_interview_questions(
+    try:
+        llm = LLMClient(LLMConfig.from_env())
+    except Exception:  # noqa: BLE001 - 未配置 LLM 时使用确定性选题
+        llm = None
+
+    questions, question_ids = build_interview_questions(
+        _storage,
+        llm,
         scenario=request.scenario,
         difficulty=request.difficulty,
+        target_role=request.target_role,
         limit=5,
     )
-    questions = [item["text"] for item in bank_questions]
-    question_ids: list[str | None] = [item["id"] for item in bank_questions]
-    if len(questions) < 5:
-        for fallback in build_questions(request.scenario, request.target_role):
-            if len(questions) >= 5:
-                break
-            if fallback not in questions:
-                questions.append(fallback)
-                question_ids.append(None)
     interview = _storage.create_interview(
         target_role=request.target_role.strip() or "通用岗位",
         scenario=request.scenario,
