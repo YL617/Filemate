@@ -84,6 +84,12 @@
         <span class="queue-count">{{ uploadQueue.length }} 个文件</span>
       </div>
 
+      <div v-if="failedCount > 0" class="queue-error-bar" role="alert">
+        <el-icon><WarningFilled /></el-icon>
+        <span>{{ failedCount }} 个文件上传失败，可重试或删除。</span>
+        <button class="action-btn" @click="retryAllFailed">全部重试</button>
+      </div>
+
       <div class="queue-list">
         <div
           v-for="(item, index) in uploadQueue"
@@ -93,8 +99,7 @@
           :class="{ 'animate-in': true }"
         >
           <div class="queue-icon" aria-hidden="true">
-            <el-icon><Document /></el-icon>
-            <small>{{ getFileExtension(item.name) }}</small>
+            <el-icon><component :is="getFileIcon(item.name)" /></el-icon>
           </div>
           <div class="queue-info">
             <div class="queue-name">{{ item.name }}</div>
@@ -149,10 +154,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Upload, FolderOpened, Document, InfoFilled, List } from '@element-plus/icons-vue'
+import {
+  Document,
+  Files,
+  FolderOpened,
+  InfoFilled,
+  List,
+  Memo,
+  Picture,
+  TrendCharts,
+  Upload,
+  WarningFilled
+} from '@element-plus/icons-vue'
 import { uploadFile } from '../services/api'
 import WorkflowSteps from '../components/WorkflowSteps.vue'
 import { useFileStore } from '../stores/fileStore'
@@ -282,6 +298,18 @@ const removeFromQueue = (index: number) => {
   uploadQueue.value.splice(index, 1)
 }
 
+const failedCount = computed(() => uploadQueue.value.filter(q => q.status === 'error').length)
+
+const retryAllFailed = () => {
+  uploadQueue.value.forEach(q => {
+    if (q.status === 'error') {
+      q.status = 'pending'
+      q.error = undefined
+    }
+  })
+  processQueue()
+}
+
 const reviewResult = (session: ProcessingSession) => {
   fileStore.setCurrentFile(session)
   router.push({ path: '/classification', query: { session: session.session_id } })
@@ -317,7 +345,20 @@ const uploadFromClipboard = async () => {
   }
 }
 
-const getFileExtension = (name: string) => name.split('.').pop()?.toUpperCase() || 'FILE'
+const getFileIcon = (name: string) => {
+  const ext = name.split('.').pop()?.toLowerCase() || ''
+  const icons: Record<string, any> = {
+    doc: Document,
+    docx: Document,
+    pdf: Files,
+    ppt: TrendCharts,
+    pptx: TrendCharts,
+    txt: Memo,
+    jpg: Picture,
+    png: Picture
+  }
+  return icons[ext] || FolderOpened
+}
 
 const formatSize = (bytes: number) => {
   if (bytes < 1024) return bytes + ' B'
@@ -665,6 +706,34 @@ const getStatusText = (status: string) => {
   color: var(--text-muted);
 }
 
+.queue-error-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: rgba(180, 75, 75, 0.08);
+  border: 1px solid rgba(180, 75, 75, 0.25);
+  border-radius: 10px;
+  color: #b44b4b;
+  font-size: 13px;
+}
+
+.queue-error-bar .el-icon {
+  flex-shrink: 0;
+  font-size: 16px;
+}
+
+.queue-error-bar span {
+  flex: 1;
+  min-width: 0;
+}
+
+.queue-error-bar .action-btn {
+  flex: 0 0 auto;
+}
+
 .queue-list {
   display: flex;
   flex-direction: column;
@@ -885,14 +954,14 @@ const getStatusText = (status: string) => {
 .upload-icon,
 .format-tag:hover,
 .status-badge.status-uploading,
-.tip-card h4 {
+.tips-card h4 {
   color: var(--accent);
 }
 
 .upload-icon-bg,
 .format-tag:hover,
 .status-badge.status-uploading,
-.tip-card {
+.tips-card {
   background: var(--accent-soft);
   border-color: var(--accent-border);
 }

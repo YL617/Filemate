@@ -63,6 +63,12 @@
       </button>
     </section>
 
+    <DataState v-if="error" :error="error" @retry="createPlan" />
+
+    <p v-else-if="!plan && !isGenerating" class="study-empty">
+      上传课程资料并填写考试日期与目标，点击「生成个性化学习计划」。
+    </p>
+
     <section v-if="plan" class="plan-results">
       <div class="plan-summary">
         <div class="summary-copy">
@@ -137,6 +143,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import DataState from '../components/DataState.vue'
 import {
   generateStudyPlan,
   getStudyPlans,
@@ -159,6 +166,7 @@ defaultExam.setDate(defaultExam.getDate() + 14)
 const selectedFile = ref<File | null>(null)
 const isDragging = ref(false)
 const isGenerating = ref(false)
+const error = ref('')
 const plan = ref<StudyPlan | null>(null)
 const planId = ref('')
 const restoredTitle = ref('')
@@ -202,6 +210,7 @@ const handleDrop = (event: DragEvent) => {
 const createPlan = async () => {
   if (!selectedFile.value) return
   isGenerating.value = true
+  error.value = ''
   try {
     const response = await generateStudyPlan(
       selectedFile.value,
@@ -215,8 +224,9 @@ const createPlan = async () => {
     restoredTitle.value = ''
     completedDays.value = new Set(response.completed_days)
     ElMessage.success(`已生成 ${response.plan.daily_plan.length} 天学习计划`)
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '学习计划生成失败')
+  } catch (e: any) {
+    error.value = e?.message || '学习计划生成失败'
+    ElMessage.error(error.value)
   } finally {
     isGenerating.value = false
   }
@@ -344,6 +354,7 @@ onMounted(restoreLatestPlan)
 input, select { width: 100%; box-sizing: border-box; padding: 12px 14px; background: #ffffff; border: 1px solid var(--border-strong); border-radius: 10px; color: var(--text-primary); font: inherit; }
 input:focus, select:focus { outline: 2px solid var(--accent-border); border-color: var(--accent); }
 .generate-button { width: 100%; padding: 14px; border: 0; border-radius: 11px; background: var(--accent); color: #ffffff; font-weight: 750; cursor: pointer; }
+.study-empty { margin: 16px 0 0; padding: 22px; text-align: center; color: var(--text-muted); font-size: 14px; background: var(--bg-surface); border: 1px dashed var(--border-strong); border-radius: 12px; }
 .generate-button:disabled { opacity: 0.45; cursor: not-allowed; }
 .spinner { display: inline-block; width: 12px; height: 12px; margin-right: 8px; border: 2px solid rgba(255,255,255,0.45); border-top-color: #ffffff; border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

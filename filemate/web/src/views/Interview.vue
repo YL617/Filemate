@@ -21,6 +21,7 @@
         <label>难度<select v-model="form.difficulty" name="interview_difficulty"><option>入门</option><option>标准</option><option>压力面</option></select></label>
       </div>
       <button class="primary" :disabled="loading || !form.targetRole.trim()" @click="begin">{{ loading ? '正在创建…' : '开始模拟面试' }}</button>
+      <DataState v-if="error" :error="error" @retry="begin" />
     </section>
 
     <template v-else>
@@ -73,11 +74,13 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { answerInterview, startInterview, type InterviewSession } from '../services/api'
+import DataState from '../components/DataState.vue'
 
 const form = ref({ targetRole: '', scenario: '求职面试', difficulty: '标准' })
 const session = ref<InterviewSession | null>(null)
 const answer = ref('')
 const loading = ref(false)
+const error = ref('')
 const speaking = ref(false)
 const recording = ref(false)
 let recognition: any = null
@@ -100,8 +103,9 @@ const speakQuestion = () => {
 
 const begin = async () => {
   loading.value = true
+  error.value = ''
   try { session.value = await startInterview(form.value.targetRole, form.value.scenario, form.value.difficulty); setTimeout(speakQuestion, 180) }
-  catch (error: any) { ElMessage.error(error.message || '创建失败') }
+  catch (e: any) { error.value = e?.message || '创建失败'; ElMessage.error(error.value) }
   finally { loading.value = false }
 }
 
