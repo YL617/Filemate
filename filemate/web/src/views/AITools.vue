@@ -13,6 +13,42 @@
       <p class="page-subtitle">上传文档，AI 帮你搞定学习笔记、知识卡、练习题</p>
     </div>
 
+    <div class="main-layout">
+      <!-- 会话历史侧边栏 -->
+      <aside class="session-sidebar" :class="{ collapsed: !sidebarOpen }">
+        <div class="sidebar-header">
+          <h3><el-icon><ChatDotSquare /></el-icon>历史会话</h3>
+          <button class="sidebar-toggle" @click="sidebarOpen = !sidebarOpen" :aria-label="sidebarOpen ? '收起侧栏' : '展开侧栏'">
+            <el-icon><ArrowLeft v-if="sidebarOpen" /><ArrowRight v-else /></el-icon>
+          </button>
+        </div>
+        <div class="sidebar-actions" v-if="sidebarOpen">
+          <button class="btn-new-chat" @click="startNewChat">
+            <el-icon><Plus /></el-icon>新对话
+          </button>
+        </div>
+        <div class="session-list" v-if="sidebarOpen">
+          <div v-if="loadingSessions" class="sidebar-loading">加载中...</div>
+          <div v-else-if="sessions.length === 0" class="sidebar-empty">暂无历史会话</div>
+          <button
+            v-for="session in sessions"
+            :key="session.ctx_id"
+            class="session-item"
+            :class="{ active: currentCtxId === session.ctx_id }"
+            @click="resumeSession(session)"
+          >
+            <div class="session-title">{{ session.title || '未命名对话' }}</div>
+            <div class="session-meta">
+              <span>{{ session.message_count }} 条消息</span>
+              <span v-if="session.updated_at">{{ formatDate(session.updated_at) }}</span>
+            </div>
+          </button>
+        </div>
+      </aside>
+
+      <!-- 主内容区 -->
+      <div class="main-content">
+
     <!-- 功能选择标签 -->
     <div class="tool-tabs" role="tablist" aria-label="资料处理工具">
       <button
@@ -106,7 +142,7 @@
     <div v-if="selectedFile" class="action-row">
       <button
         class="btn-primary"
-        :disabled="isProcessing"
+        :disabled="isProcessing || activeTab === 'chat'"
         @click="processFile"
       >
         <span v-if="isProcessing" class="spinner" aria-label="正在生成" />
@@ -236,7 +272,16 @@
               <span class="message-role">
                 <el-icon><User v-if="msg.role === 'user'" /><Service v-else /></el-icon>
               </span>
-              <span class="message-content">{{ msg.content }}</span>
+              <div class="message-content">
+                {{ msg.content }}
+                <div v-if="msg.citations?.length" class="message-citations">
+                  <div v-for="citation in msg.citations" :key="citation.id" class="citation-item">
+                    <b>[引用{{ citation.id }}] {{ citation.source_name }}</b>
+                    <span v-if="citation.page_number"> · 第 {{ citation.page_number }} 页</span>
+                    <p v-if="citation.excerpt">{{ citation.excerpt }}</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           <div class="chat-input-area">
@@ -273,14 +318,17 @@
     <div v-if="error" class="error-toast" aria-live="polite">
       <el-icon><WarningFilled /></el-icon>{{ error }}
     </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   ChatDotRound,
+  ChatDotSquare,
   CircleCheck,
   CopyDocument,
   Document,
@@ -289,10 +337,13 @@ import {
   MagicStick,
   Memo,
   Notebook,
+  Plus,
   Service,
   Tickets,
   User,
-  WarningFilled
+  WarningFilled,
+  ArrowLeft,
+  ArrowRight
 } from '@element-plus/icons-vue'
 import {
   generateSummary,
@@ -301,8 +352,12 @@ import {
   extractNotes,
   askAI,
   submitQuizAttempt,
+  listAIContexts,
+  getAIContext,
   type QuizAttemptResult,
-  type KnowledgeCard
+  type KnowledgeCard,
+  type AISessionSummary,
+  type AIChatMessage
 } from '../services/api'
 
 // 标签页配置
@@ -321,6 +376,10 @@ const switchTab = (tabId: string) => {
     activeTab.value = 'chat'
     return
   }
+  if (tabId === 'chat') {
+    ElMessage.warning('请先选择摘要/知识卡/笔记/题目处理文件，再从结果页点击「进入问答模式」')
+    return
+  }
   activeTab.value = tabId
   result.value = null
   error.value = ''
@@ -334,7 +393,7 @@ const isProcessing = ref(false)
 const result = ref<any>(null)
 const error = ref('')
 const chatQuestion = ref('')
-const chatHistory = ref<Array<{ role: string; content: string }>>([])
+const chatHistory = ref<AIChatMessage[]>([])
 const chatMode = ref<'answer' | 'socratic' | 'feynman'>('answer')
 const tutorModes = [
   { id: 'answer' as const, label: '证据问答', description: '结论与引用' },
@@ -348,6 +407,55 @@ const chatPlaceholder = computed(() => ({
 }[chatMode.value]))
 const questionAnswers = ref<Record<string, string>>({})
 const questionResults = ref<Record<string, QuizAttemptResult>>({})
+
+// 会话侧边栏
+const sidebarOpen = ref(true)
+const sessions = ref<AISessionSummary[]>([])
+const loadingSessions = ref(false)
+const currentCtxId = ref<string | null>(null)
+
+const loadSessions = async () => {
+  loadingSessions.value = true
+  try {
+    sessions.value = await listAIContexts(undefined, 50)
+  } catch (e: any) {
+    ElMessage.error(e.message || '加载会话列表失败')
+  } finally {
+    loadingSessions.value = false
+  }
+}
+
+const resumeSession = async (session: AISessionSummary) => {
+  currentCtxId.value = session.ctx_id
+  try {
+    const ctx = await getAIContext(session.ctx_id)
+    chatHistory.value = ctx.chat_history || []
+    result.value = { ctx_id: session.ctx_id, source_id: session.source_id }
+    activeTab.value = 'chat'
+  } catch (e: any) {
+    ElMessage.error(e.message || '加载会话失败')
+  }
+}
+
+const startNewChat = () => {
+  currentCtxId.value = null
+  chatHistory.value = []
+  result.value = null
+  activeTab.value = 'summary'
+  ElMessage.info('请先选择文件并处理，再进入问答模式')
+}
+
+const formatDate = (iso: string) => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const now = new Date()
+  const diff = now.getTime() - d.getTime()
+  const days = Math.floor(diff / 86400000)
+  if (days === 0) return '今天'
+  if (days === 1) return '昨天'
+  if (days < 7) return `${days} 天前`
+  return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+}
 
 // 配置
 const config = ref({
@@ -429,6 +537,9 @@ const processFile = async () => {
           config.value.noteFormat
         )
         break
+      case 'chat':
+        error.value = '请先选择摘要/知识卡/笔记/题目处理文件，再从结果页点击「进入问答模式」'
+        break
       default:
         error.value = '未知功能'
     }
@@ -437,12 +548,16 @@ const processFile = async () => {
     ElMessage.error(error.value)
   } finally {
     isProcessing.value = false
+    if (!error.value && result.value?.ctx_id) {
+      loadSessions()
+    }
   }
 }
 
 // 切换到问答模式
 const switchToChatMode = (ctxId: string) => {
   activeTab.value = 'chat'
+  currentCtxId.value = ctxId
   chatHistory.value = []
   if (result.value) {
     result.value = { ctx_id: ctxId }
@@ -467,12 +582,12 @@ const sendChatMessage = async () => {
       chatHistory.value.slice(0, -1),
       chatMode.value
     )
-    const sources = response.citations?.length
-      ? '\n\n引用：\n' + response.citations.map(c =>
-        `[引用${c.id}] ${c.source_name}${c.page_number ? ` · 第 ${c.page_number} 页` : ''}\n${c.excerpt}`
-      ).join('\n')
-      : ''
-    chatHistory.value.push({ role: 'assistant', content: response.answer + sources })
+    chatHistory.value.push({
+      role: 'assistant',
+      content: response.answer,
+      citations: response.citations
+    })
+    await loadSessions()
   } catch (e: any) {
     ElMessage.error(e.message || '问答失败')
   } finally {
@@ -536,6 +651,10 @@ const exportCardsAsCsv = () => {
   URL.revokeObjectURL(url)
   ElMessage.success('已导出 CSV')
 }
+
+onMounted(() => {
+  loadSessions()
+})
 </script>
 
 <style scoped>
@@ -989,6 +1108,20 @@ const exportCardsAsCsv = () => {
   white-space: pre-wrap;
 }
 
+.message-citations {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.citation-item p {
+  margin: 4px 0 0;
+}
+
 .chat-message.user .message-content {
   color: var(--text-primary);
 }
@@ -1180,5 +1313,180 @@ const exportCardsAsCsv = () => {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+}
+
+/* 会话侧边栏 */
+.main-layout {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.session-sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 12px;
+  transition: width 0.2s, padding 0.2s, opacity 0.2s;
+  overflow: hidden;
+}
+
+.session-sidebar.collapsed {
+  width: 44px;
+  padding: 8px;
+  opacity: 0.7;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.sidebar-header h3 {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sidebar-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sidebar-toggle:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.sidebar-actions {
+  margin-bottom: 8px;
+}
+
+.btn-new-chat {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  padding: 8px;
+  border: 1px dashed var(--border-default);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.btn-new-chat:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.session-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.session-item:hover {
+  background: var(--accent-soft);
+  border-color: var(--border-subtle);
+}
+
+.session-item.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.session-title {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-item.active .session-title {
+  color: var(--accent);
+}
+
+.session-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sidebar-loading,
+.sidebar-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 20px 8px;
+}
+
+.main-content {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .main-layout {
+    flex-direction: column;
+  }
+
+  .session-sidebar {
+    width: 100%;
+    max-height: 200px;
+  }
+
+  .session-sidebar.collapsed {
+    width: 100%;
+    max-height: 44px;
+  }
+
+  .session-list {
+    max-height: 140px;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .session-item {
+    min-width: 140px;
+    flex: 1;
+  }
 }
 </style>

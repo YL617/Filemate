@@ -9,7 +9,7 @@ from typing import Any
 
 PAGE_MARKER = re.compile(r"---\s*第\s*(\d+)\s*页\s*---")
 LATIN_TOKEN = re.compile(r"[a-zA-Z0-9_]+")
-HAN_RUN = re.compile(r"[\u4e00-\u9fff]+")
+HAN_RUN = re.compile(r"[一-鿿]+")
 
 
 def _tokens(text: str) -> list[str]:
@@ -84,7 +84,7 @@ def rank_chunks(
     *,
     limit: int = 5,
 ) -> list[dict[str, Any]]:
-    """使用轻量 BM25 评分返回可解释检索结果。"""
+    """使用轻量 BM25 评分返回存在词法重叠的可解释检索结果。"""
     query_tokens = _tokens(query)
     if not query_tokens or not chunks:
         return []

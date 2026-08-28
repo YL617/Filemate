@@ -75,11 +75,17 @@ def test_rank_chunks_chinese_tokenization() -> None:
 
 def test_rank_chunks_keeps_single_character_query_recall() -> None:
     chunks = split_document("栈是后进先出的数据结构，队列是先进先出的数据结构。", chunk_size=200)
-
     results = rank_chunks("栈", chunks)
-
     assert results
     assert "栈" in results[0]["content"]
+
+
+def test_rank_chunks_two_char_query_passes_threshold() -> None:
+    """双字查询如"队列"得分 0.86 > 0.5，应正常召回。"""
+    chunks = split_document("栈是后进先出的数据结构，队列是先进先出的数据结构。", chunk_size=200)
+    results = rank_chunks("队列", chunks)
+    assert results
+    assert "队列" in results[0]["content"]
 
 
 def test_rank_chunks_preserves_metadata() -> None:
@@ -101,4 +107,14 @@ def test_rank_chunks_reverse_order() -> None:
     results = rank_chunks("进程", chunks)
     scores = [c["score"] for c in results]
     assert scores == sorted(scores, reverse=True)
+
+
+def test_rank_chunks_filters_non_matching_content() -> None:
+    chunks = [
+        {"content": "苹果是一种水果", "chunk_index": 0},
+        {"content": "香蕉是一种水果", "chunk_index": 1},
+    ]
+    results = rank_chunks("TCP 三次握手协议", chunks)
+    assert results == []
+
 
