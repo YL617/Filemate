@@ -145,7 +145,7 @@ flowchart LR
     A --> P
     P --> R["感知层：文件解析 / OCR"]
     P --> N["理解层：分类 / 抽取 / 命名 / AI 工具"]
-    N --> L["StepFun 等 OpenAI 兼容模型"]
+    N --> L["DeepSeek V4 Flash"]
     A --> E["确认执行器：预览 / 确认 / 回滚 / 撤销"]
     A --> K["学习服务：检索 / 练习 / 错题 / 计划 / 面试"]
     E --> F["本地文件系统 / ICS"]
@@ -203,7 +203,7 @@ Source（原始资料）
 | 数据存储 | SQLite WAL，schema v8 | 本地优先、版本迁移、线程连接管理 |
 | 文件解析 | PyPDF2、pdfplumber、python-docx、python-pptx | PaddleOCR 为可选依赖 |
 | 检索 | 本地分块 + BM25 风格词法评分 | 支持页码/片段引用；无外部向量库 |
-| LLM | OpenAI 兼容 HTTP API；当前主要为 StepFun | 通过 `LLMClient` 和 Provider 适配层接入 |
+| LLM | DeepSeek V4 Flash；OpenAI 兼容 HTTP API | 通过 `LLMClient` 和 Provider 适配层接入 |
 | 测试与质量 | pytest、Ruff、vue-tsc、GitHub Actions | e2e 模型测试与普通离线测试分离 |
 
 计划中的 Neo4j、Chroma、BGE、数字人和云端部署不是当前运行依赖。新增外部能力必须通过适配层接入，并保留本地可运行的降级路径。
@@ -415,6 +415,9 @@ uv sync --extra dev
 Copy-Item .env.example .env
 # 编辑 .env，填入真实 LLM 配置
 
+# 或安全地交互写入 DeepSeek API Key（输入不会回显）
+powershell -ExecutionPolicy Bypass -File scripts/configure_deepseek.ps1
+
 # 终端 1
 uv run python server.py
 
@@ -441,8 +444,8 @@ uv run python main.py --check --db _working/check.db
 |---|---|---|
 | `LLM_PROVIDER` | `auto` | 根据 Base URL 选择 Provider |
 | `LLM_API_KEY` | AI 功能需要 | 模型密钥 |
-| `LLM_BASE_URL` | 例如 StepFun 或 DeepSeek `/v1` | OpenAI 兼容 API 地址 |
-| `LLM_MODEL` | 由供应商决定 | 模型名称 |
+| `LLM_BASE_URL` | `https://api.deepseek.com` | DeepSeek OpenAI 兼容 API 地址 |
+| `LLM_MODEL` | `deepseek-v4-flash` | 项目统一模型名称 |
 | `FILEMATE_DATA_DIR` | `<项目>/.filemate-data` | 本地应用数据根目录 |
 | `FILEMATE_UPLOAD_DIR` | `<DATA_DIR>/inbox` | 上传暂存目录 |
 | `FILEMATE_DB_PATH` | `<DATA_DIR>/filemate.db` | SQLite 文件 |
@@ -480,7 +483,7 @@ uv run python evaluation/run_evaluation.py --output _working/evaluation-report.j
 
 2026-08-27 发布基线：
 
-- 后端：`383 passed, 18 skipped, 5 deselected`。
+- 后端：`391 passed, 18 skipped, 5 deselected`。
 - SQLite 压力测试：10 线程、5000 次操作、0 错误。
 - Vue 类型检查和 Vite 生产构建通过。
 - GitHub Actions 后端与前端任务通过。

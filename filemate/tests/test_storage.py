@@ -324,7 +324,7 @@ class TestOperationLog:
         storage.log_operation(
             "log-2", "classify",
             input_snapshot='{"category":"课件"}',
-            model_used="step-3.7-speed",
+            model_used="deepseek-v4-flash",
             prompt_tokens=150,
             completion_tokens=20,
             latency_ms=1200,
@@ -334,7 +334,7 @@ class TestOperationLog:
         o = ops[0]
         assert o["action"] == "classify"
         assert o["input_snapshot"] == '{"category":"课件"}'
-        assert o["model_used"] == "step-3.7-speed"
+        assert o["model_used"] == "deepseek-v4-flash"
         assert o["prompt_tokens"] == 150
         assert o["completion_tokens"] == 20
         assert o["latency_ms"] == 1200

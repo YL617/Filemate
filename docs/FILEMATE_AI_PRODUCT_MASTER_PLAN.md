@@ -319,7 +319,7 @@ Agent 不是无限自主执行，而采用分级权限：
 - SQLite 本地版；PostgreSQL + 对象存储服务版。
 - Windows Tauri 桌面端、Web、移动响应式和 PWA。
 - 中英文 i18n、无障碍、离线查看与断点续传。
-- 模型网关：StepFun 为主，兼容 OpenAI 协议和本地模型。
+- 模型网关：DeepSeek V4 Flash 为主，兼容 OpenAI 协议和本地模型。
 - 成本预算、请求队列、缓存、重试、限流和降级。
 - 操作审计、可撤销文件操作、数据导出和彻底删除。
 
@@ -343,7 +343,7 @@ flowchart TB
     RETRIEVE --> DOC
     RETRIEVE --> VEC
     RETRIEVE --> GRAPH
-    AGENT --> LLM[LiteLLM / StepFun / Local Model]
+    AGENT --> LLM[LiteLLM / DeepSeek V4 Flash / Local Model]
     AGENT --> TOOL[Calendar / File / Export Tools]
 
     API --> MASTERY[Mastery & Growth Engine]
@@ -387,7 +387,7 @@ flowchart TB
 - 图谱 MVP：关系表 + NetworkX；数据量和查询复杂度证明必要后再引入 Neo4j。
 - 检索：BM25 + dense embedding + reranker。
 - 学习排程：FSRS；掌握估计先 BKT/规则模型，保留算法替换接口。
-- 模型：LiteLLM 统一网关，StepFun 主模型，小模型负责分类与抽取。
+- 模型：LiteLLM 统一网关，DeepSeek V4 Flash 统一承担分类、抽取、问答与生成。
 - 实时语音：WebRTC/WebSocket + 流式 ASR/TTS。
 - 桌面：Tauri 2，Rust 只负责系统能力和安全文件访问。
 

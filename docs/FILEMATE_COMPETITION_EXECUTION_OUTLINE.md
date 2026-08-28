@@ -45,7 +45,7 @@ FileMate 不再只是“AI 文件整理器”，而是一套本地优先的大�
 - 数据：SQLite + FTS5；文件与生成产物落本机应用数据目录。
 - 检索：第一阶段采用 FTS5 + 向量适配器的混合检索，不立即引入独立向量数据库。
 - Embedding：抽象 `EmbeddingProvider`，可接 BGE-M3 本地服务或 OpenAI-compatible embedding API。
-- 大模型：复用现有 `LLMClient`，以 OpenAI-compatible/LiteLLM 接口适配 StepFun 等模型；密钥只读环境变量。
+- 大模型：复用现有 `LLMClient`，通过 OpenAI-compatible 接口统一调用 `deepseek-v4-flash`；密钥只读环境变量。
 - 多智能体：先用显式 Python 状态图实现 Planner、Retriever、Resource、Evaluator 四类 Agent；状态可落库、可重放。30 天内不引入重量级 Agent 框架。
 - 文档解析：现有 PDF/Office 解析链路；OCR 作为可选能力，不纳入最小桌面运行依赖。
 

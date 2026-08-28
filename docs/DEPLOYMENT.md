@@ -87,6 +87,14 @@ powershell -ExecutionPolicy Bypass -File scripts/stop_quick_tunnel.ps1
 
 不要在聊天群、截图、仓库或会议纪要中发送服务器密码和 API Key。优先使用 SSH 密钥，敏感配置只写入服务器的 `deploy/.env.production`。
 
+模型统一使用 DeepSeek V4 Flash。先在 <https://platform.deepseek.com/api_keys> 创建密钥并确认账户余额，再在项目根目录运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/configure_deepseek.ps1
+```
+
+脚本以安全输入方式更新 `.env`，不会把密钥打印到终端。
+
 ## 4. 服务器部署
 
 ### 4.1 基础环境

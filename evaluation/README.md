@@ -14,6 +14,8 @@ uv run python evaluation/run_evaluation.py --output _working/evaluation-report.j
 
 该小型合成集合只用于工程回归，不代表真实用户意图或教学效果结论。正式竞赛报告还需扩充匿名真实样本、双人标注一致性和与基线系统的对照实验。
 
+2026-08-28 可复现合成基线：Recall@1 = 95.12%、Recall@3 = 100%、MRR = 97.56%。这些数字只能作为代码回归证据，不得写成真实用户研究结论。
+
 ## 用户研究分析模板
 
 ```powershell

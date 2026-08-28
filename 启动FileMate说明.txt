@@ -21,6 +21,6 @@
 【技术栈】
 - 前端: Vue3 + Vite + Element Plus
 - 后端: FastAPI + Python
-- AI: StepFun（通过统一 LLM 配置，可替换供应商）
+- AI: DeepSeek V4 Flash（通过统一 LLM 适配层调用）
 
 ======================================

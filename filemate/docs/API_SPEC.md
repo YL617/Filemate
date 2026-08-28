@@ -480,3 +480,4 @@ AI 生成接口成功时同时返回 `ctx_id`、`source_id`、`artifact_id`。�
 | 2026-08-27 | v1.6 | 增加 SQLite v12 题库兼容修复，并支持 `FILEMATE_HOST` / `FILEMATE_PORT` 部署监听配置 | Codex |
 | 2026-08-28 | v1.7 | LLM 鉴权、余额或权限错误改为立即失败并进入本地降级，避免无效重试拖慢导入 | Codex |
 | 2026-08-28 | v1.8 | 增加 AI 会话列表与恢复合同、结构化引用持久化和列表限流 | AcMaster-MAX / Codex |
+| 2026-08-28 | v1.9 | 默认模型统一迁移至 `deepseek-v4-flash`，移除 Step 系列运行时分支并拒绝旧配置 | Codex |

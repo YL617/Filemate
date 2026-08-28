@@ -546,7 +546,7 @@ def _run_check(db_path: str) -> bool:
             "classify",
             "课件 0.9",
             input_snapshot='{"category":"课件","confidence":0.9}',
-            model_used="step-3.7-speed",
+            model_used="deepseek-v4-flash",
             latency_ms=1200,
         )
         ops_log = storage.get_operations(sid)

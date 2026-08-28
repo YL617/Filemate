@@ -1,4 +1,4 @@
-"""Step 3.7 Speed 供应商实现（OpenAI 兼容接口）。"""
+"""DeepSeek 等 OpenAI 兼容模型的 HTTP 适配器。"""
 
 from __future__ import annotations
 
@@ -20,13 +20,8 @@ from .base import BaseLLMProvider
 logger = logging.getLogger(__name__)
 
 
-class StepSpeedProvider(BaseLLMProvider):
-    """对接 Step 3.7 Speed 大批量调用渠道。
-
-    配置来源（按优先级）：
-    1. 构造函数显式传入的 LLMConfig
-    2. 环境变量（.env）
-    """
+class OpenAICompatibleProvider(BaseLLMProvider):
+    """通过 Chat Completions API 调用 OpenAI 兼容模型。"""
 
     def __init__(self, config: LLMConfig) -> None:
         if not config.api_key:
@@ -50,57 +45,34 @@ class StepSpeedProvider(BaseLLMProvider):
         response_format: dict[str, Any] | None = None,
         timeout: float = 60.0,
     ) -> str:
-        """发起一次 Step API 调用，返回纯文本回复。"""
-        # 判断使用哪种API端点
+        """发起一次 Chat Completions 调用并返回纯文本。"""
         base_url_lower = self.config.base_url.lower()
-
-        # 云知声 (unisound) 使用 /v1/messages
-        if "unisound" in base_url_lower or "anthropic" in base_url_lower:
-            url = f"{self.config.base_url.rstrip('/')}/v1/messages"
-            payload: dict[str, Any] = {
-                "model": self.config.model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            }
-        # Step Plan 使用 /v1/messages
-        elif "step_plan" in base_url_lower:
-            url = f"{self.config.base_url.rstrip('/')}/messages"
-            payload = {
-                "model": self.config.model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            }
-        # 其他使用 Chat Completions API
-        else:
-            url = f"{self.config.base_url.rstrip('/')}/chat/completions"
-            payload = {
-                "model": self.config.model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            }
-            if "deepseek" in base_url_lower:
-                # DeepSeek 推理模型默认先输出 reasoning_content，会占用 max_tokens。
-                # 项目内多数调用依赖最终 content，关闭思考可避免短输出任务返回空内容。
-                payload["thinking"] = {"type": "disabled"}
-            if response_format:
-                payload["response_format"] = response_format
+        url = f"{self.config.base_url.rstrip('/')}/chat/completions"
+        payload: dict[str, Any] = {
+            "model": self.config.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if "deepseek" in base_url_lower:
+            # 结构化抽取依赖最终 content，默认关闭思考以稳定延迟和输出长度。
+            payload["thinking"] = {"type": "disabled"}
+        if response_format:
+            payload["response_format"] = response_format
 
         headers = {
             "Authorization": f"Bearer {self.config.api_key}",
             "Content-Type": "application/json",
         }
 
-        logger.debug("Step API 调用: %s | messages=%d 条", url, len(messages))
+        logger.debug("LLM API 调用: %s | messages=%d 条", url, len(messages))
 
         try:
             resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
         except requests.Timeout as exc:
-            raise LLMTimeoutError(f"Step API 调用超时（{timeout}s）") from exc
+            raise LLMTimeoutError(f"LLM API 调用超时（{timeout}s）") from exc
         except requests.ConnectionError as exc:
-            raise LLMAPIError(f"Step API 连接失败: {exc}") from exc
+            raise LLMAPIError(f"LLM API 连接失败: {exc}") from exc
 
         if resp.status_code == 429:
             retry_after = resp.headers.get("Retry-After", "5")
@@ -108,32 +80,19 @@ class StepSpeedProvider(BaseLLMProvider):
 
         if resp.status_code in {401, 402, 403}:
             raise LLMAccessError(
-                f"Step API 访问被拒绝（{resp.status_code}），请检查密钥、余额和账号权限: "
+                f"LLM API 访问被拒绝（{resp.status_code}），请检查密钥、余额和账号权限: "
                 f"{resp.text[:300]}"
             )
 
         if resp.status_code != 200:
             raise LLMAPIError(
-                f"Step API 返回 {resp.status_code}: {resp.text[:500]}"
+                f"LLM API 返回 {resp.status_code}: {resp.text[:500]}"
             )
 
         body = resp.json()
         try:
-            # 根据API类型解析响应
-            # Chat Completions: body["choices"][0]["message"]["content"]
-            # Messages API (云知声/Step): body["content"][0]["text"] 或 body["content"][1]["text"]
-            text = ""
-            if "content" in body and isinstance(body["content"], list):
-                for item in body["content"]:
-                    if item.get("type") == "text":
-                        text = item.get("text", "")
-                        break
-                    # 跳过thinking类型
-                    elif item.get("type") == "thinking":
-                        continue
-            elif "choices" in body:
-                text = body["choices"][0]["message"]["content"]
-        except (KeyError, IndexError) as exc:
-            raise LLMAPIError(f"Step API 响应格式异常: {body}") from exc
+            text = body["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMAPIError(f"LLM API 响应格式异常: {body}") from exc
 
         return text

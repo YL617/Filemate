@@ -15,7 +15,7 @@ from .exceptions import (
     LLMTimeoutError,
 )
 from .providers.base import BaseLLMProvider
-from .providers.step_speed import StepSpeedProvider
+from .providers.openai_compatible import OpenAICompatibleProvider
 
 logger = logging.getLogger(__name__)
 
@@ -47,17 +47,29 @@ class LLMClient:
         # 自动根据 base_url 检测 provider 类型
         if not name or name == "auto":
             base_url = (config.base_url or "").lower()
-            if "stepfun" in base_url or "step" in base_url:
-                name = "step"
-            elif "deepseek" in base_url:
+            if "deepseek" in base_url:
                 name = "deepseek"
             elif "openai" in base_url:
-                name = "openai"
+                name = "openai_compatible"
             else:
-                name = "step"  # 默认使用 step
+                raise LLMConfigError(
+                    "无法从 LLM_BASE_URL 识别供应商；当前默认使用 DeepSeek，"
+                    "请设置 https://api.deepseek.com"
+                )
 
-        if name in ("step", "step_speed", "step_plan", "deepseek"):
-            return StepSpeedProvider(config)
+        if name == "deepseek":
+            if "api.deepseek.com" not in (config.base_url or "").lower():
+                raise LLMConfigError(
+                    "DeepSeek 必须使用官方 LLM_BASE_URL=https://api.deepseek.com"
+                )
+            if config.model != "deepseek-v4-flash":
+                raise LLMConfigError(
+                    "FileMate 当前统一使用 LLM_MODEL=deepseek-v4-flash"
+                )
+            return OpenAICompatibleProvider(config)
+
+        if name in ("openai", "openai_compatible"):
+            return OpenAICompatibleProvider(config)
 
         raise LLMConfigError(f"不支持的 LLM 供应商: {name}")
 
