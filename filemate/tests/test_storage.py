@@ -1044,7 +1044,7 @@ class TestInterviewQuestionBank:
         questions = storage.list_interview_questions()
 
         assert first_ids == repeated_ids
-        assert len(first_ids) == len(questions) == 45
+        assert len(first_ids) == len(questions) == 72
         for scenario in SCENARIOS:
             for difficulty in DIFFICULTIES:
                 matching = [
@@ -1053,4 +1053,4 @@ class TestInterviewQuestionBank:
                     if item["scenario"] == scenario
                     and item["difficulty"] == difficulty
                 ]
-                assert len(matching) == 5
+                assert len(matching) == 8
