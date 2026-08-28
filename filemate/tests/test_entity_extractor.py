@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import pytest
 
+from filemate.llm_client.exceptions import LLMAccessError
 from filemate.understanding.entity_extractor import ENTITY_FIELDS, EntityExtractor
 
 
@@ -134,6 +135,13 @@ class TestEntityExtractorFailure:
         assert result["extra_entities"] == {}
         for field in ENTITY_FIELDS[:-1]:
             assert result[field] is None
+
+    def test_access_error_is_not_retried(self) -> None:
+        stub = _Stub(raises=LLMAccessError("credit exhausted"))
+        result = EntityExtractor(stub).extract("正文")
+
+        assert stub.calls == 1
+        assert result["extra_entities"] == {}
 
     @pytest.mark.parametrize("bad_payload", [None, [], "字符串", 42])
     def test_non_dict_payload_returns_empty(self, bad_payload) -> None:

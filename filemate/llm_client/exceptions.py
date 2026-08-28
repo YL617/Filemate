@@ -9,6 +9,10 @@ class LLMAPIError(LLMError):
     """远程 API 返回错误。"""
 
 
+class LLMAccessError(LLMAPIError):
+    """鉴权、余额或账号权限错误，重试无法恢复。"""
+
+
 class LLMTimeoutError(LLMError):
     """调用超时。"""
 

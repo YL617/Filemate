@@ -106,8 +106,7 @@ class LLMClient:
             except LLMAPIError as exc:
                 # 不对业务层面错误（配置错误、无效请求等）重试
                 logger.error("API 错误（不重试）: %s", exc)
-                last_exc = exc
-                break
+                raise
 
         raise LLMAPIError(
             f"LLM 调用在 {retry} 次重试后仍失败: {last_exc}"

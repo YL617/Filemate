@@ -1,0 +1,40 @@
+{
+	admin off
+}
+
+{$FILEMATE_DOMAIN} {
+	encode zstd gzip
+
+	basic_auth {
+		{$FILEMATE_BASIC_USER} {$FILEMATE_BASIC_PASSWORD_HASH}
+	}
+
+	@api_docs path /docs* /openapi.json
+	handle @api_docs {
+		reverse_proxy api:8001
+	}
+
+	@api {
+		path /api/* /process /sessions* /ai/* /knowledge* /quiz* /wrongbook* /interview* /interviews* /analytics* /review* /study-plans* /evaluation*
+		not header Accept text/html*
+	}
+	handle @api {
+		reverse_proxy api:8001
+	}
+
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

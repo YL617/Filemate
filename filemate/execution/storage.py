@@ -305,6 +305,27 @@ ALTER TABLE interview_sessions
     ADD COLUMN question_ids TEXT NOT NULL DEFAULT '[]';
 """
 
+# v9 曾在未合并的开发分支中被 AI 学习实验占用，部分本地数据库还保留
+# v9-v11 的实验迁移记录。v12 只补齐现役题库表；question_ids 由初始化时
+# 的列检查幂等修复，避免重复 ALTER TABLE。
+_INTERVIEW_BANK_REPAIR_SCHEMA = """\
+CREATE TABLE IF NOT EXISTS interview_questions (
+    id          TEXT PRIMARY KEY,
+    scenario    TEXT NOT NULL
+                CHECK(scenario IN ('求职面试','竞赛答辩','保研复试')),
+    difficulty  TEXT NOT NULL
+                CHECK(difficulty IN ('入门','标准','压力面')),
+    text        TEXT NOT NULL CHECK(length(trim(text)) BETWEEN 1 AND 1000),
+    enabled     INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now')),
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now')),
+    UNIQUE(scenario, difficulty, text)
+);
+
+CREATE INDEX IF NOT EXISTS idx_interview_questions_filter
+    ON interview_questions(scenario, difficulty, enabled);
+"""
+
 _MIGRATIONS = (
     (1, "initial_execution_schema", _SCHEMA),
     (2, "knowledge_persistence", _KNOWLEDGE_SCHEMA),
@@ -315,6 +336,7 @@ _MIGRATIONS = (
     (7, "anonymous_product_feedback", _PRODUCT_FEEDBACK_SCHEMA),
     (8, "spaced_repetition", _SPACED_REPETITION_SCHEMA),
     (9, "interview_question_bank", _INTERVIEW_BANK_SCHEMA),
+    (12, "interview_question_bank_compatibility", _INTERVIEW_BANK_REPAIR_SCHEMA),
 )
 
 
@@ -423,6 +445,17 @@ class SQLiteStorage:
                     if conn.in_transaction:
                         conn.rollback()
                     raise
+
+            interview_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(interview_sessions)")
+            }
+            if "question_ids" not in interview_columns:
+                conn.execute(
+                    "ALTER TABLE interview_sessions "
+                    "ADD COLUMN question_ids TEXT NOT NULL DEFAULT '[]'"
+                )
+                conn.commit()
 
     def get_schema_version(self) -> int:
         """返回已应用的最高数据库版本。"""

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
+
+from filemate.llm_client.exceptions import LLMAccessError, LLMAPIError
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,10 @@ class EntityExtractor:
                     out["deadline"] = None
                 out["extra_entities"] = self._flatten(result.get("extra_entities"))
                 return out
-            except Exception as exc:
+            except LLMAccessError as exc:
+                logger.error("实体抽取不可重试: %s", exc)
+                break
+            except (LLMAPIError, RuntimeError, ValueError, TypeError, AttributeError) as exc:
                 logger.warning("实体抽取第%d次失败: %s", attempt, exc)
                 continue
 

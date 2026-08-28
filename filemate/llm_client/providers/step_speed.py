@@ -9,6 +9,7 @@ import requests
 
 from ..config import LLMConfig
 from ..exceptions import (
+    LLMAccessError,
     LLMAPIError,
     LLMConfigError,
     LLMRateLimitError,
@@ -104,6 +105,12 @@ class StepSpeedProvider(BaseLLMProvider):
         if resp.status_code == 429:
             retry_after = resp.headers.get("Retry-After", "5")
             raise LLMRateLimitError(f"触发限流，{retry_after}s 后重试")
+
+        if resp.status_code in {401, 402, 403}:
+            raise LLMAccessError(
+                f"Step API 访问被拒绝（{resp.status_code}），请检查密钥、余额和账号权限: "
+                f"{resp.text[:300]}"
+            )
 
         if resp.status_code != 200:
             raise LLMAPIError(

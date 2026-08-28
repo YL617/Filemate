@@ -1,5 +1,8 @@
+import pytest
+
 from filemate.llm_client.client import LLMClient
 from filemate.llm_client.config import LLMConfig
+from filemate.llm_client.exceptions import LLMAccessError
 from filemate.llm_client.providers.step_speed import StepSpeedProvider
 
 
@@ -9,6 +12,11 @@ class _FakeResponse:
     @staticmethod
     def json() -> dict:
         return {"choices": [{"message": {"content": "OK"}}]}
+
+
+class _FakeAccessDeniedResponse:
+    status_code = 401
+    text = '{"error":{"type":"billing_error","message":"credit exhausted"}}'
 
 
 def test_deepseek_base_url_uses_openai_compatible_provider() -> None:
@@ -50,3 +58,31 @@ def test_deepseek_disables_thinking(monkeypatch) -> None:
     assert text == "OK"
     assert captured["url"] == "https://api.deepseek.com/v1/chat/completions"
     assert captured["json"]["thinking"] == {"type": "disabled"}
+
+
+def test_access_error_is_explicit_and_not_retried(monkeypatch) -> None:
+    calls = 0
+
+    def fake_post(url: str, json: dict, headers: dict, timeout: float):
+        nonlocal calls
+        del url, json, headers, timeout
+        calls += 1
+        return _FakeAccessDeniedResponse()
+
+    monkeypatch.setattr(
+        "filemate.llm_client.providers.step_speed.requests.post",
+        fake_post,
+    )
+    client = LLMClient(
+        LLMConfig(
+            provider="step",
+            api_key="sk-test",
+            base_url="https://api.stepfun.com/v1",
+            model="step-test",
+        )
+    )
+
+    with pytest.raises(LLMAccessError, match="密钥、余额和账号权限"):
+        client.call(messages=[{"role": "user", "content": "hi"}], retry=3)
+
+    assert calls == 1

@@ -92,16 +92,15 @@ try {
             throw "Sidecar exited before readiness (code $($process.ExitCode)). $(Get-ProcessLogs)"
         }
         try {
-            $health = Invoke-RestMethod -Uri "http://127.0.0.1:8001/" `
+            $health = Invoke-RestMethod -Uri "http://127.0.0.1:8001/api/health" `
                 -Method Get -TimeoutSec 2 -UseBasicParsing
-            if ($health.version -eq "1.2.0") {
+            if ($health.success -and $health.data.version) {
                 break
             }
-        } catch {
-            Start-Sleep -Milliseconds 250
-        }
+        } catch {}
+        Start-Sleep -Milliseconds 250
     }
-    if (-not $health -or $health.version -ne "1.2.0") {
+    if (-not $health -or -not $health.success -or -not $health.data.version) {
         throw "Sidecar did not become ready within $TimeoutSeconds seconds. $(Get-ProcessLogs)"
     }
 
@@ -146,7 +145,7 @@ try {
         schema_version = 1
         checked_at = (Get-Date).ToUniversalTime().ToString("o")
         binary = $BinaryPath
-        version = $health.version
+        version = $health.data.version
         ready = $true
         database_created = $true
         graceful_shutdown = $true
@@ -163,9 +162,29 @@ try {
     Write-Host "Sidecar smoke passed. Evidence: $EvidencePath"
 } finally {
     if ($process) {
+        if (Test-BackendPort) {
+            try {
+                $headers = @{ "X-FileMate-Shutdown-Token" = $shutdownToken }
+                Invoke-RestMethod -Uri "http://127.0.0.1:8001/internal/shutdown" `
+                    -Method Post -Headers $headers -TimeoutSec 2 `
+                    -UseBasicParsing | Out-Null
+                Start-Sleep -Milliseconds 750
+            } catch {}
+        }
         $process.Refresh()
         if (-not $process.HasExited) {
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        }
+
+        $listeners = Get-NetTCPConnection -LocalPort 8001 -State Listen `
+            -ErrorAction SilentlyContinue
+        foreach ($listener in $listeners) {
+            $owner = Get-CimInstance Win32_Process `
+                -Filter "ProcessId = $($listener.OwningProcess)" `
+                -ErrorAction SilentlyContinue
+            if ($owner -and $owner.ExecutablePath -eq $BinaryPath) {
+                Stop-Process -Id $owner.ProcessId -Force -ErrorAction SilentlyContinue
+            }
         }
     }
     foreach ($name in $environment.Keys) {

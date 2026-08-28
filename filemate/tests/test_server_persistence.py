@@ -1362,3 +1362,63 @@ def test_quiz_attempt_rejects_malformed_question_artifact(
 
     assert response.status_code == 422
     assert response.json()["error"] == "题目数据格式无效"
+
+
+def test_run_server_reads_bind_address_from_environment(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """生产容器可改监听地址，桌面端仍复用同一本地启动入口。"""
+    module, _ = server_module
+    uvicorn_module = importlib.import_module("uvicorn")
+    captured: dict[str, Any] = {}
+
+    class FakeConfig:
+        def __init__(
+            self,
+            app: Any,
+            *,
+            host: str,
+            port: int,
+            log_level: str,
+        ) -> None:
+            captured.update(
+                app=app,
+                host=host,
+                port=port,
+                log_level=log_level,
+            )
+
+    class FakeServer:
+        def __init__(self, config: FakeConfig) -> None:
+            captured["config"] = config
+
+        def run(self) -> None:
+            captured["ran"] = True
+
+    monkeypatch.setenv("FILEMATE_HOST", "0.0.0.0")
+    monkeypatch.setenv("FILEMATE_PORT", "9000")
+    monkeypatch.setattr(uvicorn_module, "Config", FakeConfig)
+    monkeypatch.setattr(uvicorn_module, "Server", FakeServer)
+
+    module.run_server()
+
+    assert captured["app"] is module.app
+    assert captured["host"] == "0.0.0.0"
+    assert captured["port"] == 9000
+    assert captured["log_level"] == "info"
+    assert captured["ran"] is True
+
+
+@pytest.mark.parametrize("port", ["invalid", "0", "65536"])
+def test_run_server_rejects_invalid_port(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    monkeypatch: pytest.MonkeyPatch,
+    port: str,
+) -> None:
+    """无效监听端口必须在启动前给出明确错误。"""
+    module, _ = server_module
+    monkeypatch.setenv("FILEMATE_PORT", port)
+
+    with pytest.raises(ValueError, match="FILEMATE_PORT"):
+        module.run_server()

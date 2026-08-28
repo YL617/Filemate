@@ -1,7 +1,7 @@
 """分类模块测试。TODO(张金宝)"""
 from __future__ import annotations
 
-import pytest
+from filemate.llm_client.exceptions import LLMAccessError
 
 # 分类输出契约（技术决策定稿 §4.1）
 EXPECTED_FIELDS = {"category", "confidence", "course_name", "method"}
@@ -78,6 +78,21 @@ class TestClassifierEdgeCases:
         clf = _make_classifier()
         result = clf.classify("实验 lab3 deadline 2026-04-15")
         assert "category" in result
+
+    def test_access_error_is_not_retried(self) -> None:
+        class AccessDeniedStub:
+            calls = 0
+
+            def call_structured(self, **kwargs):
+                del kwargs
+                self.calls += 1
+                raise LLMAccessError("credit exhausted")
+
+        stub = AccessDeniedStub()
+        result = _make_classifier(stub)._classify_llm("正文", "unknown.txt")
+
+        assert stub.calls == 1
+        assert result["method"] == "none"
 
 
 class TestClassifierKeywordRules:

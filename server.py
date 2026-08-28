@@ -29,6 +29,7 @@ from filemate.execution.confirmation_executor import (
     ExecutionError,
 )
 from filemate.execution.storage import SQLiteStorage
+from filemate.understanding.interview_bank_seed import SEED_QUESTIONS
 
 # 加载 .env 文件
 env_path = Path(__file__).parent / ".env"
@@ -128,6 +129,7 @@ def _managed_file_status(
 # 初始化数据库
 _storage = SQLiteStorage(DATABASE_PATH)
 _storage.init_schema()
+_storage.ensure_interview_questions(SEED_QUESTIONS)
 
 # =============== Models ===============
 
@@ -1674,8 +1676,16 @@ def run_server() -> None:
     """启动本地 FastAPI 服务。"""
     import uvicorn
 
+    host = os.getenv("FILEMATE_HOST", "127.0.0.1").strip() or "127.0.0.1"
+    try:
+        port = int(os.getenv("FILEMATE_PORT", "8001"))
+    except ValueError as exc:
+        raise ValueError("FILEMATE_PORT must be an integer") from exc
+    if not 1 <= port <= 65535:
+        raise ValueError("FILEMATE_PORT must be between 1 and 65535")
+
     global _uvicorn_server
-    config = uvicorn.Config(app, host="127.0.0.1", port=8001, log_level="info")
+    config = uvicorn.Config(app, host=host, port=port, log_level="info")
     _uvicorn_server = uvicorn.Server(config)
     _uvicorn_server.run()
 
