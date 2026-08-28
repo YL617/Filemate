@@ -17,7 +17,7 @@
 |---|---|---|---|
 | P0-1 | `BackendAPI` 保存 session 时传入 `session.to_dict()` 全量字段，包含 `session_id`，必然抛 `TypeError` | 界面处理文件后无法保存结果 | 保存前只传白名单字段，或让 `update_session` 忽略多余字段；补端到端测试 |
 | P0-2 | 运行时从不加载 `.env`，`LLMConfig.from_env()` 只读 `os.environ` | 按 README 操作拿不到 API Key | 引入 `python-dotenv` 或统一在入口加载 `.env` |
-| P0-3 | README/架构文档宣称 FastAPI、LangChain、LlamaIndex、Neo4j、Vue 3 等技术栈，实际仓库只有 Gradio、SQLite、requests、StepFun | 文档与实现严重脱节，无法作为真实项目展示 | 把“已实现”和“规划中”分开，改正 README clone 地址和目录说明 |
+| P0-3 | README/架构文档宣称 FastAPI、LangChain、LlamaIndex、Neo4j、Vue 3 等技术栈，实际仓库只有 Gradio、SQLite、requests 和单一模型适配 | 文档与实现严重脱节，无法作为真实项目展示 | 把“已实现”和“规划中”分开，改正 README clone 地址和目录说明 |
 
 ### P1：决定工程可信度
 
@@ -40,7 +40,7 @@
 
 | 编号 | 问题 | 整改方向 |
 |---|---|---|
-| P3-11 | 只支持 StepFun provider，却宣称 DeepSeek/Claude/GPT-4o 多供应商 | 删除宣称，或实现 provider 注册表后再扩展 |
+| P3-11 | 当时只支持单一 provider，却宣称 DeepSeek/Claude/GPT-4o 多供应商 | 删除宣称，或实现 provider 注册表后再扩展 |
 | P3-12 | `PipelineFactory` 超时控制仍是 `pass`，`BatchProcessor` 引用不存在的 `PipelineWorker.process_one` | 实现或删除，避免留下“看起来有但实际没有”的能力 |
 | P3-13 | 报告指标不可复现、文档记录的是规划而非现状 | 文档只描述真实存在的能力，指标附样本和复现命令 |
 

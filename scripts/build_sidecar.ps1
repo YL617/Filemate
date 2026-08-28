@@ -46,7 +46,7 @@ $previousUvCacheDir = $env:UV_CACHE_DIR
 $env:UV_CACHE_DIR = $uvCacheDir
 Push-Location $projectRoot
 try {
-    uv run --no-project `
+    uv run --isolated --no-project `
         --with-requirements requirements-desktop.txt `
         --with "pyinstaller>=6.0" `
         pyinstaller `

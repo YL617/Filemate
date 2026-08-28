@@ -54,7 +54,7 @@ def _apply_migrations_upto(db_path: Path, upto: int) -> None:
 
 class TestMigrationUpgrade:
     def test_upgrade_from_old_version(self, tmp_path: Path) -> None:
-        """v5 旧库逐级升级到 v9，且 v6~v9 的表和字段确实建立。"""
+        """v5 旧库逐级升级到 v12，且现役表和字段确实建立。"""
         db = tmp_path / "old.db"
         _apply_migrations_upto(db, 5)
         legacy = sqlite3.connect(db)
@@ -70,8 +70,10 @@ class TestMigrationUpgrade:
         s = SQLiteStorage(db)
         s.init_schema()
 
-        assert s.get_schema_version() == 9
-        assert [m["version"] for m in s.list_migrations()] == list(range(1, 10))
+        assert s.get_schema_version() == 12
+        assert [m["version"] for m in s.list_migrations()] == [
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 12
+        ]
 
         conn = s._conn()
         tables = {
@@ -91,6 +93,54 @@ class TestMigrationUpgrade:
         assert upgraded_interview is not None
         assert upgraded_interview["question_ids"] == [None, None]
         s.close()
+
+    def test_repairs_unreleased_ai_learning_migration_collision(
+        self, tmp_path: Path
+    ) -> None:
+        """实验分支占用 v9-v11 时仍补齐现役题库，不破坏旧记录。"""
+        db = tmp_path / "migration-collision.db"
+        conn = sqlite3.connect(db)
+        conn.execute(
+            """CREATE TABLE schema_migrations (
+                   version INTEGER PRIMARY KEY,
+                   name TEXT NOT NULL,
+                   applied_at TEXT NOT NULL DEFAULT
+                              (strftime('%Y-%m-%dT%H:%M:%S','now')))"""
+        )
+        conn.executemany(
+            "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+            [
+                (9, "ai_learning"),
+                (10, "ai_learning_llm_config"),
+                (11, "ai_learning_message_mode"),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        storage = SQLiteStorage(db)
+        storage.init_schema()
+
+        assert storage.get_schema_version() == 12
+        migrations = {item["version"]: item["name"] for item in storage.list_migrations()}
+        assert migrations[9] == "ai_learning"
+        assert migrations[12] == "interview_question_bank_compatibility"
+        tables = {
+            row["name"]
+            for row in storage._conn().execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert "interview_questions" in tables
+        interview_columns = {
+            row["name"]
+            for row in storage._conn().execute(
+                "PRAGMA table_info(interview_sessions)"
+            )
+        }
+        assert "question_ids" in interview_columns
+        assert storage.list_interview_questions() == []
+        storage.close()
 
     def test_failed_migration_rolls_back(self, tmp_path: Path) -> None:
         """v8 迁移失败时回滚，不留下 version 记录，可重试。"""
@@ -138,10 +188,12 @@ class TestSchemaInit:
             assert expected in names
 
     def test_versioned_migrations_applied(self, storage: SQLiteStorage) -> None:
-        assert storage.get_schema_version() == 9
+        assert storage.get_schema_version() == 12
         migrations = storage.list_migrations()
-        assert [item["version"] for item in migrations] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
-        assert migrations[-1]["name"] == "interview_question_bank"
+        assert [item["version"] for item in migrations] == [
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 12
+        ]
+        assert migrations[-1]["name"] == "interview_question_bank_compatibility"
 
     def test_knowledge_tables_and_local_workspace_exist(
         self,
@@ -272,7 +324,7 @@ class TestOperationLog:
         storage.log_operation(
             "log-2", "classify",
             input_snapshot='{"category":"课件"}',
-            model_used="step-3.7-speed",
+            model_used="deepseek-v4-flash",
             prompt_tokens=150,
             completion_tokens=20,
             latency_ms=1200,
@@ -282,7 +334,7 @@ class TestOperationLog:
         o = ops[0]
         assert o["action"] == "classify"
         assert o["input_snapshot"] == '{"category":"课件"}'
-        assert o["model_used"] == "step-3.7-speed"
+        assert o["model_used"] == "deepseek-v4-flash"
         assert o["prompt_tokens"] == 150
         assert o["completion_tokens"] == 20
         assert o["latency_ms"] == 1200
@@ -507,6 +559,61 @@ class TestKnowledgePersistence:
         assert storage.delete_document_context("ctx-delete")
         assert storage.get_document_context("ctx-delete") is None
         assert not storage.delete_document_context("ctx-delete")
+
+    def test_list_document_contexts(self, storage: SQLiteStorage) -> None:
+        for index in range(3):
+            storage.save_document_context(
+                ctx_id=f"ctx-list-{index}",
+                context_text=f"上下文 {index}",
+                chat_history=[{"role": "user", "content": f"问题 {index}"}],
+            )
+
+        sessions = storage.list_document_contexts(limit=10)
+
+        assert len(sessions) == 3
+        assert "问题 2" in [session["title"] for session in sessions]
+        assert all(session["message_count"] == 1 for session in sessions)
+
+    def test_list_document_contexts_filters_by_source(
+        self, storage: SQLiteStorage
+    ) -> None:
+        source_a = storage.save_source(
+            original_name="src-a.txt",
+            source_path="/managed/src-a.txt",
+            raw_text="A",
+        )
+        source_b = storage.save_source(
+            original_name="src-b.txt",
+            source_path="/managed/src-b.txt",
+            raw_text="B",
+        )
+        storage.save_document_context(
+            ctx_id="ctx-a", source_id=source_a, context_text="A"
+        )
+        storage.save_document_context(
+            ctx_id="ctx-b", source_id=source_b, context_text="B"
+        )
+
+        sessions = storage.list_document_contexts(source_id=source_a)
+
+        assert len(sessions) == 1
+        assert sessions[0]["ctx_id"] == "ctx-a"
+
+    def test_list_document_contexts_clamps_invalid_limit(
+        self, storage: SQLiteStorage
+    ) -> None:
+        for index in range(3):
+            storage.save_document_context(
+                ctx_id=f"ctx-limit-{index}",
+                context_text="很长的上下文" * 1000,
+                chat_history=[{"role": "user", "content": f"问题 {index}"}],
+            )
+
+        sessions = storage.list_document_contexts(limit=-1)
+
+        assert len(sessions) == 1
+        assert "context_text" not in sessions[0]
+        assert "chat_history" not in sessions[0]
 
 
 class TestSourceDeletion:

@@ -529,8 +529,46 @@ def test_chat_uses_and_updates_persisted_history(
     persisted = storage.get_document_context("ctx-chat")["chat_history"]
     assert persisted[-2:] == [
         {"role": "user", "content": "为什么是三次？"},
-        {"role": "assistant", "content": "它属于计算机网络课程。"},
+        {
+            "role": "assistant",
+            "content": "它属于计算机网络课程。",
+            "citations": [],
+        },
     ]
+
+
+def test_ai_context_routes_validate_limit_and_restore_history(
+    server_module: tuple[ModuleType, SQLiteStorage],
+) -> None:
+    module, storage = server_module
+    storage.save_document_context(
+        ctx_id="ctx-history",
+        context_text="操作系统中的进程与线程。",
+        chat_history=[
+            {"role": "user", "content": "线程共享什么？"},
+            {
+                "role": "assistant",
+                "content": "共享进程地址空间。",
+                "citations": [{"id": 1, "source_name": "操作系统.pdf"}],
+            },
+        ],
+    )
+
+    with TestClient(module.app) as client:
+        listed = client.get("/ai/contexts", params={"limit": 1})
+        too_small = client.get("/ai/contexts", params={"limit": 0})
+        too_large = client.get("/ai/contexts", params={"limit": 201})
+        detail = client.get("/ai/contexts/ctx-history")
+        missing = client.get("/ai/contexts/missing")
+
+    assert listed.status_code == 200
+    assert listed.json()["data"][0]["message_count"] == 2
+    assert listed.json()["data"][0]["title"] == "线程共享什么？"
+    assert too_small.status_code == 422
+    assert too_large.status_code == 422
+    assert detail.status_code == 200
+    assert detail.json()["data"]["chat_history"][-1]["citations"][0]["id"] == 1
+    assert missing.status_code == 404
 
 
 def test_retrieval_search_and_wrongbook_flow(
@@ -1362,3 +1400,63 @@ def test_quiz_attempt_rejects_malformed_question_artifact(
 
     assert response.status_code == 422
     assert response.json()["error"] == "题目数据格式无效"
+
+
+def test_run_server_reads_bind_address_from_environment(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """生产容器可改监听地址，桌面端仍复用同一本地启动入口。"""
+    module, _ = server_module
+    uvicorn_module = importlib.import_module("uvicorn")
+    captured: dict[str, Any] = {}
+
+    class FakeConfig:
+        def __init__(
+            self,
+            app: Any,
+            *,
+            host: str,
+            port: int,
+            log_level: str,
+        ) -> None:
+            captured.update(
+                app=app,
+                host=host,
+                port=port,
+                log_level=log_level,
+            )
+
+    class FakeServer:
+        def __init__(self, config: FakeConfig) -> None:
+            captured["config"] = config
+
+        def run(self) -> None:
+            captured["ran"] = True
+
+    monkeypatch.setenv("FILEMATE_HOST", "0.0.0.0")
+    monkeypatch.setenv("FILEMATE_PORT", "9000")
+    monkeypatch.setattr(uvicorn_module, "Config", FakeConfig)
+    monkeypatch.setattr(uvicorn_module, "Server", FakeServer)
+
+    module.run_server()
+
+    assert captured["app"] is module.app
+    assert captured["host"] == "0.0.0.0"
+    assert captured["port"] == 9000
+    assert captured["log_level"] == "info"
+    assert captured["ran"] is True
+
+
+@pytest.mark.parametrize("port", ["invalid", "0", "65536"])
+def test_run_server_rejects_invalid_port(
+    server_module: tuple[ModuleType, SQLiteStorage],
+    monkeypatch: pytest.MonkeyPatch,
+    port: str,
+) -> None:
+    """无效监听端口必须在启动前给出明确错误。"""
+    module, _ = server_module
+    monkeypatch.setenv("FILEMATE_PORT", port)
+
+    with pytest.raises(ValueError, match="FILEMATE_PORT"):
+        module.run_server()

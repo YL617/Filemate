@@ -16,16 +16,13 @@ from __future__ import annotations
 
 import logging
 import threading
-from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Self
 
-from filemate.llm_client import LLMClient, LLMConfig
-from filemate.llm_client.providers.step_speed import StepSpeedProvider
-from filemate.perception import FileParser, FileWatcher, OCRBackend
-from filemate.perception.parsers import get_parser
-from filemate.execution.storage import SQLiteStorage
-from filemate.execution.scheduler import CalendarBuilder
 from filemate.execution.file_ops import FileOps
+from filemate.execution.scheduler import CalendarBuilder
+from filemate.execution.storage import SQLiteStorage
+from filemate.llm_client import LLMClient, LLMConfig
+from filemate.perception import FileParser, OCRBackend
 
 logger = logging.getLogger(__name__)
 
@@ -41,21 +38,21 @@ class ModuleRegistry:
         storage = registry.get_storage()
     """
 
-    _instance: Optional["ModuleRegistry"] = None
+    _instance: ModuleRegistry | None = None
     _lock = threading.Lock()
 
     def __init__(self) -> None:
-        self._llm: Optional[LLMClient] = None
-        self._parser: Optional[FileParser] = None
-        self._ocr: Optional[OCRBackend] = None
-        self._storage: Optional[SQLiteStorage] = None
-        self._calendar: Optional[CalendarBuilder] = None
-        self._file_ops: Optional[FileOps] = None
-        self._config: Optional[LLMConfig] = None
+        self._llm: LLMClient | None = None
+        self._parser: FileParser | None = None
+        self._ocr: OCRBackend | None = None
+        self._storage: SQLiteStorage | None = None
+        self._calendar: CalendarBuilder | None = None
+        self._file_ops: FileOps | None = None
+        self._config: LLMConfig | None = None
         self._initialized = False
 
     @classmethod
-    def get_instance(cls) -> "ModuleRegistry":
+    def get_instance(cls) -> ModuleRegistry:
         """获取全局单例实例（线程安全）。"""
         if cls._instance is None:
             with cls._lock:
@@ -185,7 +182,7 @@ class ModuleRegistry:
     # Context Manager
     # =====================================================================
 
-    def __enter__(self) -> "ModuleRegistry":
+    def __enter__(self) -> Self:
         """支持 with 语句（自动初始化）。"""
         self.get_llm()
         self.get_parser()
@@ -193,9 +190,7 @@ class ModuleRegistry:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """退出时清理资源（可选）。"""
-        # 不自动关闭，保持复用
-        pass
+        """退出时保持模块实例复用，不主动清理。"""
 
 
 # 便捷函数

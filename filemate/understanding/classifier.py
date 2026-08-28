@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Any
+
+from filemate.llm_client.exceptions import LLMAccessError, LLMAPIError
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,10 @@ class Classifier:
                     "reason": result.get("reason", ""),
                     "method": "llm",
                 }
-            except Exception as exc:
+            except LLMAccessError as exc:
+                logger.error("LLM 分类不可重试: %s", exc)
+                break
+            except (LLMAPIError, RuntimeError, ValueError, TypeError, AttributeError) as exc:
                 logger.warning("LLM 分类第%d次失败: %s", attempt, exc)
                 continue
 

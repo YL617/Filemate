@@ -14,6 +14,7 @@ struct BackendProcess {
     child: Mutex<Option<CommandChild>>,
     shutdown_token: String,
 }
+
 fn request_graceful_shutdown(token: &str) {
     let address: SocketAddr = "127.0.0.1:8001".parse().expect("valid backend address");
     if let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(300)) {
@@ -82,7 +83,11 @@ pub fn run() {
             let state = app_handle.state::<BackendProcess>();
             request_graceful_shutdown(&state.shutdown_token);
             thread::sleep(Duration::from_millis(500));
-            if let Some(child) = state.child.lock().expect("backend state poisoned").take() {
+            let child = {
+                let mut child_guard = state.child.lock().expect("backend state poisoned");
+                child_guard.take()
+            };
+            if let Some(child) = child {
                 let _ = child.kill();
             }
         }

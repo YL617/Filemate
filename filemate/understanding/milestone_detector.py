@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
+
+from filemate.llm_client.exceptions import LLMAccessError, LLMAPIError
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,10 @@ class MilestoneDetector:
                     ev["order"] = i
                 logger.debug("识别到 %d 个里程碑", len(events))
                 return events
-            except Exception as exc:
+            except LLMAccessError as exc:
+                logger.error("里程碑识别不可重试: %s", exc)
+                break
+            except (LLMAPIError, RuntimeError, ValueError, TypeError, AttributeError) as exc:
                 logger.warning("里程碑识别第%d次失败: %s", attempt, exc)
                 continue
 

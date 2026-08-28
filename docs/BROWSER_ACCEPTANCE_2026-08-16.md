@@ -60,5 +60,5 @@
 ## 5. 已知限制
 
 - 浏览器环境为 headless Chromium，未验证真实语音输入。
-- AI 生成类流程受 StepFun 配额限制，仍依赖 A1/A2 合并和有效 LLM 配置。
+- AI 生成类流程依赖有效的 DeepSeek API Key、账户余额和 `deepseek-v4-flash` 配置。
 - 测试样本仍缺 `.docx/.pdf/.pptx`，部分感知层测试继续跳过。

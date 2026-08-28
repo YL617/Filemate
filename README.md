@@ -15,9 +15,10 @@ FileMate 是一个面向大学生的本地优先 AI 学习工作台。它把散�
 1. [`AGENTS.md`](AGENTS.md)：AI 和开发者必须遵守的最小开发规则、命令与边界。
 2. 本 README：现役能力、真实技术栈、整体结构、路线图和协作方式。
 3. [`filemate/docs/API_SPEC.md`](filemate/docs/API_SPEC.md)：Python 核心接口与 HTTP API 合同。
-4. [`PRODUCT.md`](PRODUCT.md)：用户、产品原则、视觉承诺与竞赛证据边界。
-5. [`design-system/filemate/MASTER.md`](design-system/filemate/MASTER.md)：自然绿色 UI 设计系统。
-6. 与任务直接相关的源码和测试；代码与文档冲突时，以当前 `main` 代码、测试和 CI 为准，并同步修正文档。
+4. [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)：网站生产部署、服务器选型、安全边界与桌面端交付方案。
+5. [`PRODUCT.md`](PRODUCT.md)：用户、产品原则、视觉承诺与竞赛证据边界。
+6. [`design-system/filemate/MASTER.md`](design-system/filemate/MASTER.md)：自然绿色 UI 设计系统。
+7. 与任务直接相关的源码和测试；代码与文档冲突时，以当前 `main` 代码、测试和 CI 为准，并同步修正文档。
 
 以下文档属于长期规划或专项材料，不能当作现役实现清单：
 
@@ -95,7 +96,7 @@ FileMate 是一个面向大学生的本地优先 AI 学习工作台。它把散�
 
 - Windows 队友执行 `scripts/dev.ps1 -Setup` 后可启动前后端。
 - 所有高影响文件操作必须先预览确认，不覆盖已有目标，并可撤销。
-- 数据写入 SQLite v9，关闭并重启后仍能读取。
+- 数据写入 SQLite v12，关闭并重启后仍能读取。
 - 非 e2e 后端测试不得少于当前 `370 passed` 基线；新增功能必须新增测试。
 - `npm run build`、CI 静态检查和离线评测通过。
 - P0 缺陷为 0；P1 缺陷必须有负责人、复现步骤和明确截止日期。
@@ -144,11 +145,11 @@ flowchart LR
     A --> P
     P --> R["感知层：文件解析 / OCR"]
     P --> N["理解层：分类 / 抽取 / 命名 / AI 工具"]
-    N --> L["StepFun 等 OpenAI 兼容模型"]
+    N --> L["DeepSeek V4 Flash"]
     A --> E["确认执行器：预览 / 确认 / 回滚 / 撤销"]
     A --> K["学习服务：检索 / 练习 / 错题 / 计划 / 面试"]
     E --> F["本地文件系统 / ICS"]
-    P --> S["SQLite v9"]
+    P --> S["SQLite v12"]
     E --> S
     K --> S
 ```
@@ -202,7 +203,7 @@ Source（原始资料）
 | 数据存储 | SQLite WAL，schema v8 | 本地优先、版本迁移、线程连接管理 |
 | 文件解析 | PyPDF2、pdfplumber、python-docx、python-pptx | PaddleOCR 为可选依赖 |
 | 检索 | 本地分块 + BM25 风格词法评分 | 支持页码/片段引用；无外部向量库 |
-| LLM | OpenAI 兼容 HTTP API；当前主要为 StepFun | 通过 `LLMClient` 和 Provider 适配层接入 |
+| LLM | DeepSeek V4 Flash；OpenAI 兼容 HTTP API | 通过 `LLMClient` 和 Provider 适配层接入 |
 | 测试与质量 | pytest、Ruff、vue-tsc、GitHub Actions | e2e 模型测试与普通离线测试分离 |
 
 计划中的 Neo4j、Chroma、BGE、数字人和云端部署不是当前运行依赖。新增外部能力必须通过适配层接入，并保留本地可运行的降级路径。
@@ -258,7 +259,7 @@ FileMate/
 | `server.py` | HTTP 合同、参数校验、服务编排、统一错误 | 重复实现底层领域算法 |
 | `web` | 用户交互、状态反馈、响应式布局、API 调用 | 直接读取 SQLite 或本地任意路径 |
 
-## 7. SQLite v9 数据模型
+## 7. SQLite v12 数据模型
 
 数据库由 `schema_migrations` 管理，`init_schema()` 必须保持幂等。不要直接修改已经发布的迁移；新增字段或表必须增加新版本迁移和升级测试。
 
@@ -273,6 +274,7 @@ FileMate/
 | v7 | `product_feedback` | 匿名正负反馈和统计 |
 | v8 | 错题间隔重复字段与索引 | 下次复习时间、间隔、难度因子、复习次数 |
 | v9 | `interview_questions`、`interview_sessions.question_ids` | 可维护面试题库与选题来源追踪 |
+| v12 | 题库兼容修复 | 修复未合并实验迁移曾占用 v9-v11 的本地数据库；v10-v11 不作为正式迁移复用 |
 
 关键关系：
 
@@ -413,6 +415,9 @@ uv sync --extra dev
 Copy-Item .env.example .env
 # 编辑 .env，填入真实 LLM 配置
 
+# 或安全地交互写入 DeepSeek API Key（输入不会回显）
+powershell -ExecutionPolicy Bypass -File scripts/configure_deepseek.ps1
+
 # 终端 1
 uv run python server.py
 
@@ -439,12 +444,14 @@ uv run python main.py --check --db _working/check.db
 |---|---|---|
 | `LLM_PROVIDER` | `auto` | 根据 Base URL 选择 Provider |
 | `LLM_API_KEY` | AI 功能需要 | 模型密钥 |
-| `LLM_BASE_URL` | 例如 StepFun 或 DeepSeek `/v1` | OpenAI 兼容 API 地址 |
-| `LLM_MODEL` | 由供应商决定 | 模型名称 |
+| `LLM_BASE_URL` | `https://api.deepseek.com` | DeepSeek OpenAI 兼容 API 地址 |
+| `LLM_MODEL` | `deepseek-v4-flash` | 项目统一模型名称 |
 | `FILEMATE_DATA_DIR` | `<项目>/.filemate-data` | 本地应用数据根目录 |
 | `FILEMATE_UPLOAD_DIR` | `<DATA_DIR>/inbox` | 上传暂存目录 |
 | `FILEMATE_DB_PATH` | `<DATA_DIR>/filemate.db` | SQLite 文件 |
 | `FILEMATE_ARCHIVE_DIR` | `<项目>/archive` | 最终归档目录 |
+| `FILEMATE_HOST` | `127.0.0.1` | API 监听地址；生产容器内设为 `0.0.0.0` |
+| `FILEMATE_PORT` | `8001` | API 监听端口 |
 | `FILEMATE_SHUTDOWN_TOKEN` | 桌面宿主注入 | 只允许本机优雅关闭 Sidecar |
 | `FILEMATE_INTERVIEW_LOCAL_ONLY` | `1` 时强制本地评分 | 面试隐私/离线模式 |
 
@@ -466,14 +473,17 @@ uv run python filemate/tests/stress_test_storage.py
 Set-Location filemate/web
 npm run build
 
-# 离线产品评测
+# 无服务器临时公网演示（共享前必须保管好输出的访问密码）
 Set-Location ../..
+powershell -ExecutionPolicy Bypass -File scripts/start_quick_tunnel.ps1
+
+# 离线产品评测
 uv run python evaluation/run_evaluation.py --output _working/evaluation-report.json
 ```
 
-2026-08-26 发布基线：
+2026-08-27 发布基线：
 
-- 后端：`370 passed, 18 skipped, 5 deselected`。
+- 后端：`391 passed, 18 skipped, 5 deselected`。
 - SQLite 压力测试：10 线程、5000 次操作、0 错误。
 - Vue 类型检查和 Vite 生产构建通过。
 - GitHub Actions 后端与前端任务通过。
@@ -606,6 +616,7 @@ powershell -ExecutionPolicy Bypass -File scripts/verify.ps1
 | 文档 | 用途 | 状态 |
 |---|---|---|
 | [`filemate/docs/API_SPEC.md`](filemate/docs/API_SPEC.md) | 核心 Python 接口、HTTP API、可信执行合同 | 现役 |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | 网站上线、服务器选型、备份安全与桌面安装包路线 | 现役交付方案 |
 | [`docs/AGENT_DEVELOPMENT_EXECUTION_PLAN.md`](docs/AGENT_DEVELOPMENT_EXECUTION_PLAN.md) | 其他 Agent 的分阶段任务卡、文件边界与验收合同 | 现役执行计划 |
 | [`design-system/filemate/MASTER.md`](design-system/filemate/MASTER.md) | UI 色彩、布局、组件和禁止项 | 现役 |
 | [`docs/PHASE0_ACCEPTANCE_REPORT.md`](docs/PHASE0_ACCEPTANCE_REPORT.md) | 可信执行与工程门禁证据 | 现役证据 |

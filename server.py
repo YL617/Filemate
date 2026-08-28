@@ -29,6 +29,7 @@ from filemate.execution.confirmation_executor import (
     ExecutionError,
 )
 from filemate.execution.storage import SQLiteStorage
+from filemate.understanding.interview_bank_seed import SEED_QUESTIONS
 
 # 加载 .env 文件
 env_path = Path(__file__).parent / ".env"
@@ -128,6 +129,7 @@ def _managed_file_status(
 # 初始化数据库
 _storage = SQLiteStorage(DATABASE_PATH)
 _storage.init_schema()
+_storage.ensure_interview_questions(SEED_QUESTIONS)
 
 # =============== Models ===============
 
@@ -1107,7 +1109,9 @@ class StudyPlanDayRequest(BaseModel):
 
 def _answer_score(user_answer: str, reference_answer: str) -> float:
     """计算适用于客观题与短答案的稳定相似度。"""
-    normalize = lambda value: re.sub(r"[^\w\u4e00-\u9fff]", "", value.lower())
+    def normalize(value: str) -> str:
+        return re.sub(r"[^\w\u4e00-\u9fff]", "", value.lower())
+
     user = normalize(user_answer)
     reference = normalize(reference_answer)
     if not user or not reference:
@@ -1649,16 +1653,20 @@ async def ai_chat(request: ChatRequest):
             ctx_id,
             [
                 {"role": "user", "content": question},
-                {"role": "assistant", "content": answer},
+                {
+                    "role": "assistant",
+                    "content": answer,
+                    "citations": citations,
+                },
             ],
         )
 
         result = {
             "ctx_id": ctx_id,
-                "question": question,
-                "answer": answer,
-                "mode": request.mode,
-                "citations": citations,
+            "question": question,
+            "answer": answer,
+            "mode": request.mode,
+            "citations": citations,
             "chat_history": chat_history[-10:],
         }
 
@@ -1668,14 +1676,45 @@ async def ai_chat(request: ChatRequest):
         raise HTTPException(status_code=502, detail="AI 问答失败") from exc
 
 
+@app.get("/ai/contexts", response_model=ApiResponse)
+async def list_ai_contexts(
+    source_id: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """列出 AI 问答会话列表（最近更新的排在前面）。"""
+    try:
+        sessions = _storage.list_document_contexts(source_id=source_id, limit=limit)
+        return ApiResponse(success=True, data=sessions)
+    except Exception as exc:
+        logger.exception("列出 AI 会话失败")
+        raise HTTPException(status_code=502, detail="列出 AI 会话失败") from exc
+
+
+@app.get("/ai/contexts/{ctx_id}", response_model=ApiResponse)
+async def get_ai_context(ctx_id: str):
+    """获取单个 AI 问答会话的完整内容。"""
+    ctx = _storage.get_document_context(ctx_id)
+    if ctx is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return ApiResponse(success=True, data=ctx)
+
+
 # =============== Main ===============
 
 def run_server() -> None:
     """启动本地 FastAPI 服务。"""
     import uvicorn
 
+    host = os.getenv("FILEMATE_HOST", "127.0.0.1").strip() or "127.0.0.1"
+    try:
+        port = int(os.getenv("FILEMATE_PORT", "8001"))
+    except ValueError as exc:
+        raise ValueError("FILEMATE_PORT must be an integer") from exc
+    if not 1 <= port <= 65535:
+        raise ValueError("FILEMATE_PORT must be between 1 and 65535")
+
     global _uvicorn_server
-    config = uvicorn.Config(app, host="127.0.0.1", port=8001, log_level="info")
+    config = uvicorn.Config(app, host=host, port=port, log_level="info")
     _uvicorn_server = uvicorn.Server(config)
     _uvicorn_server.run()
 

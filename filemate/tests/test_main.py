@@ -21,8 +21,8 @@ from filemate.core.session import SessionStatus
 @pytest.fixture(autouse=True)
 def _fake_llm_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LLM_API_KEY", "sk-test")
-    monkeypatch.setenv("LLM_BASE_URL", "https://api.stepfun.com/step_plan/v1")
-    monkeypatch.setenv("LLM_MODEL", "step-3.7-flash")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("LLM_MODEL", "deepseek-v4-flash")
 
 
 def test_parse_failure_marks_session_failed(tmp_path: Path) -> None:

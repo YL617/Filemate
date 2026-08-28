@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import pytest
 
+from filemate.llm_client.exceptions import LLMAccessError
 from filemate.understanding.milestone_detector import MilestoneDetector
 
 
@@ -159,3 +160,10 @@ class TestMilestoneDetectorFailure:
 
         assert result == []
         assert stub.calls == 2, "应重试一次（共 2 次尝试）"
+
+    def test_access_error_is_not_retried(self) -> None:
+        stub = _Stub(raises=LLMAccessError("credit exhausted"))
+        result = MilestoneDetector(stub).detect("正文")
+
+        assert result == []
+        assert stub.calls == 1
