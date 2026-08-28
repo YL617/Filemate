@@ -78,6 +78,41 @@ def test_build_interview_questions_ai_selects_then_fills_deterministically(
     assert len(question_ids) == 5
 
 
+def test_build_interview_questions_isolates_scenario_and_difficulty(tmp_path) -> None:
+    storage = _make_storage(tmp_path)
+    expected_ids = [
+        storage.create_interview_question(
+            scenario="求职面试",
+            difficulty="标准",
+            text=f"求职标准题 {index}",
+        )
+        for index in range(5)
+    ]
+    wrong_scenario_id = storage.create_interview_question(
+        scenario="竞赛答辩",
+        difficulty="标准",
+        text="竞赛标准题",
+    )
+    wrong_difficulty_id = storage.create_interview_question(
+        scenario="求职面试",
+        difficulty="压力面",
+        text="求职压力题",
+    )
+    llm = FakeLLM(f'["{wrong_scenario_id}", "{wrong_difficulty_id}"]')
+
+    questions, question_ids = build_interview_questions(
+        storage,
+        llm,
+        scenario="求职面试",
+        difficulty="标准",
+        target_role="Java 后端",
+        limit=5,
+    )
+
+    assert set(question_ids) == set(expected_ids)
+    assert all(question.startswith("求职标准题") for question in questions)
+
+
 def test_build_interview_questions_generates_when_bank_is_insufficient(
     tmp_path,
 ) -> None:
@@ -106,6 +141,7 @@ def test_build_interview_questions_generates_when_bank_is_insufficient(
     assert len(questions) == 5
     assert any("AI 补题" in question for question in questions)
     assert len([question_id for question_id in question_ids if question_id]) == 2
+    assert question_ids[2:] == [None, None, None]
 
 
 def test_build_interview_questions_falls_back_without_llm(tmp_path) -> None:

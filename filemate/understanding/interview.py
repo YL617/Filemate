@@ -145,9 +145,14 @@ def build_interview_questions(
     difficulty: str,
     target_role: str,
     limit: int = 5,
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str | None]]:
     """AI 选题 + AI 补题 + 确定性回退，返回 (题目列表, 题库题目 ID 列表)。"""
-    candidates = storage.list_interview_questions(enabled=True)
+    candidates = storage.list_interview_questions(
+        scenario=scenario,
+        difficulty=difficulty,
+        enabled=True,
+        limit=500,
+    )
     selected_ids = select_question_ids_with_llm(
         llm,
         candidates,
@@ -158,7 +163,9 @@ def build_interview_questions(
     )
     by_id = {str(item["id"]): item for item in candidates}
     questions = [by_id[question_id]["text"] for question_id in selected_ids if question_id in by_id]
-    question_ids = [question_id for question_id in selected_ids if question_id in by_id]
+    question_ids: list[str | None] = [
+        question_id for question_id in selected_ids if question_id in by_id
+    ]
     used_ids = set(question_ids)
 
     for item in storage.select_interview_questions(
