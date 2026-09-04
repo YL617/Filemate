@@ -7,6 +7,7 @@ import io
 import json
 import sys
 from collections.abc import Iterator
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -18,6 +19,80 @@ from starlette.requests import Request
 
 from filemate.core.session import ProcessingSession, SessionStatus
 from filemate.execution.storage import SQLiteStorage
+
+
+def test_reverse_goal_persists_tasks_and_agent_evidence(
+    server_module: tuple[ModuleType, SQLiteStorage],
+) -> None:
+    module, storage = server_module
+    source_id = storage.save_source(
+        original_name="竞赛申报书.md",
+        source_path="/local/竞赛申报书.md",
+        raw_text="FileMate 是本地优先的智能学习工作台。",
+    )
+    deadline = (
+        datetime.now().astimezone().date() + timedelta(days=20)
+    ).isoformat()
+
+    with TestClient(module.app) as client:
+        created_response = client.post(
+            "/goals/reverse-plan",
+            json={
+                "title": "完成 FileMate 竞赛答辩",
+                "goal_type": "competition",
+                "deadline": deadline,
+                "target_score": 85,
+                "source_id": source_id,
+            },
+        )
+        assert created_response.status_code == 200
+        created = created_response.json()["data"]
+        assert created["evidence_status"] == "insufficient"
+        assert created["source_name"] == "竞赛申报书.md"
+        expression_gap = next(
+            item for item in created["gaps"] if item["name"] == "表达基线"
+        )
+        assert expression_gap["current"] == "待评测"
+
+        task_id = created["tasks"][0]["task_id"]
+        updated_response = client.patch(
+            f"/goals/{created['goal_id']}/tasks/{task_id}",
+            json={"completed": True},
+        )
+        assert updated_response.status_code == 200
+        updated = updated_response.json()["data"]
+        updated_task = next(
+            item for item in updated["tasks"] if item["task_id"] == task_id
+        )
+        assert updated_task["status"] == "completed"
+
+        replanned_response = client.post(f"/goals/{created['goal_id']}/replan")
+        assert replanned_response.status_code == 200
+        replanned = replanned_response.json()["data"]
+        replanned_task = next(
+            item for item in replanned["tasks"] if item["task_id"] == task_id
+        )
+        assert replanned_task["status"] == "completed"
+
+        listed = client.get("/goals").json()["data"]
+        assert listed[0]["goal_id"] == created["goal_id"]
+
+    runs = storage.list_agent_runs()
+    assert runs[0]["selected_agents"] == ["规划 Agent", "学习教练 Agent"]
+    assert [step["agent_name"] for step in runs[0]["steps"]] == [
+        "规划 Agent",
+        "学习教练 Agent",
+    ]
+    assert all("raw_text" not in step["input_refs"] for step in runs[0]["steps"])
+
+    database_path = storage.db_path
+    storage.close()
+    reopened = SQLiteStorage(database_path)
+    reopened.init_schema()
+    module._storage = reopened
+    restored = reopened.get_artifact(created["goal_id"])
+    assert restored is not None
+    assert restored["content"]["title"] == "完成 FileMate 竞赛答辩"
 
 
 @pytest.fixture()
@@ -752,17 +827,87 @@ def test_mock_interview_progresses_and_persists(
         ).json()["data"]
         answered = client.post(
             f"/interviews/{started['interview_id']}/answers",
-            json={"answer": "我负责接口设计并通过测试将错误率降低了百分之三十。"},
+            json={
+                "answer": "我负责接口设计并通过测试将错误率降低了百分之三十。",
+                "fluency_metrics": {
+                    "duration_seconds": 18,
+                    "filler_count": 1,
+                    "long_pause_count": 0,
+                    "source": "speech_recognition",
+                    "markers": [
+                        {"second": 6.2, "kind": "filler", "label": "出现口头语"}
+                    ],
+                },
+            },
         ).json()["data"]
         analytics = client.get("/analytics/overview").json()["data"]
 
     assert started["current_index"] == 0
+    assert started["agent_run_id"]
     assert answered["current_index"] == 1
     assert answered["latest_evaluation"]["score"] > 0
-    assert len(storage.get_interview(started["interview_id"])["turns"]) == 1
+    persisted = storage.get_interview(started["interview_id"])
+    assert len(persisted["turns"]) == 1
+    assert "流畅性" in answered["latest_evaluation"]["dimensions"]
+    assert persisted["turns"][0]["fluency_metrics"]["source"] == "speech_recognition"
+    assert persisted["turns"][0]["fluency_metrics"]["markers"][0]["second"] == 6.2
     assert analytics["interview_count"] == 1
     assert analytics["average_interview_score"] > 0
     assert "内容" in analytics["interview_dimensions"]
+    run = storage.get_agent_run(started["agent_run_id"])
+    assert run is not None
+    assert run["selected_agents"] == ["面试 Agent", "评价 Agent"]
+    assert [step["agent_name"] for step in run["steps"]] == [
+        "面试 Agent",
+        "评价 Agent",
+    ]
+    assert "answer" not in run["steps"][1]["input_refs"]
+    assert {item["memory_type"] for item in storage.list_agent_memories()} == {
+        "session",
+        "growth",
+    }
+
+
+def test_trust_center_enforces_rights_and_revokes_memory(
+    server_module: tuple[ModuleType, SQLiteStorage],
+) -> None:
+    module, storage = server_module
+    source_id = storage.save_source(
+        original_name="公开课程说明.pdf",
+        source_path="C:/资料/公开课程说明.pdf",
+        raw_text="课程说明正文",
+    )
+
+    with TestClient(module.app) as client:
+        initial = client.get("/trust/overview").json()["data"]
+        rejected = client.put(
+            f"/knowledge/sources/{source_id}/rights",
+            json={
+                "rights_status": "unconfirmed",
+                "sharing_scope": "shareable",
+            },
+        )
+        accepted = client.put(
+            f"/knowledge/sources/{source_id}/rights",
+            json={
+                "rights_status": "public",
+                "sharing_scope": "shareable",
+                "note": "学校官网公开发布",
+            },
+        )
+        after = client.get("/trust/overview").json()["data"]
+        memory_id = after["memories"][0]["memory_id"]
+        deleted = client.delete(f"/agents/memories/{memory_id}")
+        final = client.get("/trust/overview").json()["data"]
+
+    assert initial["source_rights"][0]["rights_status"] == "unconfirmed"
+    assert rejected.status_code == 422
+    assert accepted.status_code == 200
+    assert accepted.json()["data"]["sharing_scope"] == "shareable"
+    assert after["runs"][0]["selected_agents"] == ["安全 Agent"]
+    assert after["runs"][0]["steps"][0]["agent_name"] == "安全 Agent"
+    assert deleted.status_code == 200
+    assert all(item["memory_id"] != memory_id for item in final["memories"])
 
 
 def test_interview_question_bank_crud(
@@ -833,6 +978,50 @@ def test_start_interview_uses_bank_and_scoring_mode(
     assert restored["question_ids"] == started["question_ids"]
     assert started["questions"][0] == "请介绍一个你解决复杂问题的经历，并说明结果。"
     assert answered["latest_evaluation"]["scoring_mode"] in {"llm", "local_fallback"}
+
+
+def test_interview_uses_selected_source_with_rights_boundary(
+    server_module: tuple[ModuleType, SQLiteStorage],
+) -> None:
+    module, storage = server_module
+    source_id = storage.save_source(
+        original_name="FileMate竞赛申报书.pdf",
+        source_path="C:/资料/FileMate竞赛申报书.pdf",
+        raw_text="本项目将散落资料转化为可引用的学习资产。",
+    )
+
+    with TestClient(module.app) as client:
+        private_session = client.post(
+            "/interviews",
+            json={
+                "target_role": "创新赛道答辩",
+                "scenario": "竞赛答辩",
+                "difficulty": "标准",
+                "source_id": source_id,
+            },
+        ).json()["data"]
+        client.put(
+            f"/knowledge/sources/{source_id}/rights",
+            json={"rights_status": "self_owned", "sharing_scope": "private"},
+        )
+        authorized_session = client.post(
+            "/interviews",
+            json={
+                "target_role": "创新赛道答辩",
+                "scenario": "竞赛答辩",
+                "difficulty": "标准",
+                "source_id": source_id,
+            },
+        ).json()["data"]
+
+    assert "FileMate竞赛申报书.pdf" in private_session["questions"][0]
+    assert private_session["question_ids"][0] is None
+    assert private_session["source_context"]["mode"] == "local_metadata_only"
+    assert authorized_session["source_context"]["mode"] == "authorized_excerpt"
+    run = storage.get_agent_run(authorized_session["agent_run_id"])
+    assert run is not None
+    assert run["context_refs"]["source_id"] == source_id
+    assert "raw_text" not in run["context_refs"]
 
 
 def test_delete_source_cleans_managed_inbox_file(

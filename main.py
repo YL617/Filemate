@@ -190,7 +190,7 @@ def _make_stages(
 
     # 阶段 5：生成文件名
     def generate_name(session: ProcessingSession) -> ProcessingSession:
-        course = session.entities.get("course_name") or "未分类"
+        course = session.entities.get("course_name") or ""
         task = session.entities.get("task_description") or Path(session.source_path).stem
         deadline = session.entities.get("deadline") or ""
         suggested = namer.generate(
@@ -199,6 +199,7 @@ def _make_stages(
             task=task,
             deadline=deadline,
             status="待处理",
+            extra_entities=session.entities.get("extra_entities"),
         )
         session.suggested_name = suggested
         storage.log_operation(session.session_id, "name", suggested)

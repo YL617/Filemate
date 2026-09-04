@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 QUESTION_BANK = {
@@ -103,6 +104,7 @@ def generate_interview_questions_with_llm(
     scenario: str,
     difficulty: str,
     count: int,
+    context_excerpt: str = "",
 ) -> list[str]:
     """让 AI 针对性生成面试题；失败或无效时返回空列表。"""
     if llm is None or count <= 0 or not hasattr(llm, "call"):
@@ -116,6 +118,11 @@ def generate_interview_questions_with_llm(
         f"场景：{scenario}\n难度：{difficulty}\n目标岗位/方向：{target_role}\n"
         f"生成 {count} 道题"
     )
+    if context_excerpt.strip():
+        user_prompt += (
+            "\n用户已明确选择以下本地材料作为出题依据。只围绕其中可核验的"
+            f"信息提问，不复述敏感原文：\n{context_excerpt[:2000]}"
+        )
     try:
         text = llm.call(
             messages=[{"role": "system", "content": prompt}, {"role": "user", "content": user_prompt}],
@@ -145,6 +152,7 @@ def build_interview_questions(
     difficulty: str,
     target_role: str,
     limit: int = 5,
+    context_excerpt: str = "",
 ) -> tuple[list[str], list[str | None]]:
     """AI 选题 + AI 补题 + 确定性回退，返回 (题目列表, 题库题目 ID 列表)。"""
     candidates = storage.list_interview_questions(
@@ -190,6 +198,7 @@ def build_interview_questions(
             scenario=scenario,
             difficulty=difficulty,
             count=missing,
+            context_excerpt=context_excerpt,
         ):
             if len(questions) >= limit:
                 break
@@ -210,13 +219,44 @@ def build_interview_questions(
     return questions[:limit], question_ids
 
 
+def build_source_grounded_question(
+    source_name: str,
+    scenario: str,
+    target_role: str,
+) -> str:
+    """根据用户明确选择的资料生成可追溯的本地问题。"""
+    safe_name = source_name.strip()[:80] or "所选资料"
+    target = target_role.strip() or "目标方向"
+    templates = {
+        "求职面试": (
+            f"结合你选择的《{safe_name}》，请说明其中哪项经历或成果最能证明"
+            f"你胜任{target}，并给出具体证据。"
+        ),
+        "竞赛答辩": (
+            f"结合《{safe_name}》，请说明项目最关键的创新如何落地，"
+            "并指出材料中能够支撑这一结论的事实。"
+        ),
+        "保研复试": (
+            f"结合《{safe_name}》，请介绍一项与你申请{target}相关的学习或研究经历，"
+            "并说明你的具体贡献。"
+        ),
+    }
+    return templates.get(scenario, templates["求职面试"])
+
+
 class InterviewEvaluator:
     """使用 LLM 评估回答，失败时提供可用的规则回退。"""
 
     def __init__(self, llm_client: Any) -> None:
         self.llm = llm_client
 
-    def evaluate(self, question: str, answer: str, target_role: str) -> dict[str, Any]:
+    def evaluate(
+        self,
+        question: str,
+        answer: str,
+        target_role: str,
+        fluency_metrics: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """返回总分、维度分和改进建议。"""
         prompt = f"""你是严谨的大学生模拟面试官。请评估回答，只返回 JSON。
 目标岗位/方向：{target_role}
@@ -236,7 +276,7 @@ JSON 结构：{{"score": 0-100, "dimensions": {{"内容": 0-100, "结构": 0-100
                 key: max(0.0, min(100.0, float(value)))
                 for key, value in result.get("dimensions", {}).items()
             }
-            return {
+            result = {
                 "score": max(0.0, min(100.0, float(result["score"]))),
                 "dimensions": dimensions,
                 "feedback": str(result.get("feedback", "请补充具体行动与结果。")),
@@ -244,7 +284,7 @@ JSON 结构：{{"score": 0-100, "dimensions": {{"内容": 0-100, "结构": 0-100
             }
         except Exception:  # noqa: BLE001 - 面试演示必须在模型不可用时降级
             length_score = min(90.0, 35.0 + len(answer.strip()) * 0.35)
-            return {
+            result = {
                 "score": round(length_score, 2),
                 "dimensions": {
                     "内容": round(length_score, 2),
@@ -255,3 +295,70 @@ JSON 结构：{{"score": 0-100, "dimensions": {{"内容": 0-100, "结构": 0-100
                 "feedback": "建议使用“情境—行动—结果”结构，并补充可量化成果。",
                 "scoring_mode": "local_fallback",
             }
+        return self._with_fluency(result, answer, fluency_metrics)
+
+    @staticmethod
+    def _with_fluency(
+        evaluation: dict[str, Any],
+        answer: str,
+        metrics: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """把浏览器语音节奏转成透明、低权重的流畅性参考分。"""
+        if not metrics or metrics.get("source") != "speech_recognition":
+            return evaluation
+
+        duration = max(0.0, min(3600.0, float(metrics.get("duration_seconds", 0))))
+        if duration < 2:
+            return evaluation
+
+        spoken_chars = len(re.sub(r"\s+", "", answer))
+        chars_per_minute = round(spoken_chars * 60 / duration, 2)
+        filler_count = max(0, min(100, int(metrics.get("filler_count", 0))))
+        long_pause_count = max(0, min(100, int(metrics.get("long_pause_count", 0))))
+        marker_labels = {"long_pause": "较长停顿", "filler": "出现口头语"}
+        markers = []
+        for marker in metrics.get("markers", [])[:100]:
+            if not isinstance(marker, dict) or marker.get("kind") not in marker_labels:
+                continue
+            second = max(0.0, min(duration, float(marker.get("second", 0))))
+            markers.append(
+                {
+                    "second": round(second, 2),
+                    "kind": marker["kind"],
+                    "label": marker_labels[marker["kind"]],
+                }
+            )
+
+        if 120 <= chars_per_minute <= 260:
+            pace_score = 100.0
+        elif chars_per_minute < 120:
+            pace_score = max(35.0, 100.0 - (120 - chars_per_minute) * 0.75)
+        else:
+            pace_score = max(35.0, 100.0 - (chars_per_minute - 260) * 0.45)
+
+        fluency_score = max(
+            0.0,
+            min(
+                100.0,
+                pace_score - min(24, filler_count * 4) - min(24, long_pause_count * 6),
+            ),
+        )
+        fluency_score = round(fluency_score, 2)
+        base_score = float(evaluation.get("score", 0))
+        evaluation["score"] = round(base_score * 0.85 + fluency_score * 0.15, 2)
+        evaluation.setdefault("dimensions", {})["流畅性"] = fluency_score
+        evaluation["fluency"] = {
+            "duration_seconds": round(duration, 2),
+            "chars_per_minute": chars_per_minute,
+            "filler_count": filler_count,
+            "long_pause_count": long_pause_count,
+            "reference_score": fluency_score,
+            "source": "speech_recognition",
+            "markers": markers,
+        }
+        fluency_feedback = (
+            f"语音节奏参考：约 {chars_per_minute:.0f} 字/分钟，"
+            f"检测到 {filler_count} 个口头语、{long_pause_count} 次较长停顿。"
+        )
+        evaluation["feedback"] = f"{evaluation.get('feedback', '')} {fluency_feedback}".strip()
+        return evaluation

@@ -17,43 +17,49 @@ const routes: RouteRecordRaw[] = [
     path: '/import',
     name: 'Import',
     component: () => import('../views/Import.vue'),
-    meta: { title: '导入文件' }
+    meta: { title: '导入资料' }
   },
   {
     path: '/classification',
     name: 'Classification',
     component: () => import('../views/Classification.vue'),
-    meta: { title: '分类预览' }
+    meta: { title: '分类确认' }
   },
   {
     path: '/naming',
     name: 'Naming',
     component: () => import('../views/Naming.vue'),
-    meta: { title: '命名预览' }
+    meta: { title: '命名确认' }
   },
   {
     path: '/schedule',
     name: 'Schedule',
     component: () => import('../views/Schedule.vue'),
-    meta: { title: '日程预览' }
+    meta: { title: '学习日程' }
   },
   {
     path: '/history',
     name: 'History',
     component: () => import('../views/History.vue'),
-    meta: { title: '历史记录' }
+    meta: { title: '处理记录' }
   },
   {
     path: '/ai-tools',
     name: 'AITools',
     component: () => import('../views/AITools.vue'),
-    meta: { title: 'AI工具箱' }
+    meta: { title: '资料理解' }
   },
   {
     path: '/study-plan',
     name: 'StudyPlan',
     component: () => import('../views/StudyPlan.vue'),
-    meta: { title: 'AI 学习计划' }
+    meta: { title: '学习计划' }
+  },
+  {
+    path: '/goals',
+    name: 'GoalPlanner',
+    component: () => import('../views/GoalPlanner.vue'),
+    meta: { title: '目标反推' }
   },
   {
     path: '/wrongbook',
@@ -84,6 +90,12 @@ const routes: RouteRecordRaw[] = [
     name: 'Knowledge',
     component: () => import('../views/Knowledge.vue'),
     meta: { title: '个人知识库' }
+  },
+  {
+    path: '/trust',
+    name: 'TrustCenter',
+    component: () => import('../views/TrustCenter.vue'),
+    meta: { title: '可信与隐私' }
   }
 ]
 

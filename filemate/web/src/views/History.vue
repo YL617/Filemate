@@ -21,7 +21,11 @@
 
       <div v-else class="history-table">
         <el-table :data="history" v-loading="loading" stripe>
-          <el-table-column prop="session_id" label="ID" width="100" />
+          <el-table-column label="记录编号" width="120">
+            <template #default="{ row }">
+              <span class="table-id" :title="row.session_id">{{ shortId(row.session_id) }}</span>
+            </template>
+          </el-table-column>
           <el-table-column label="文件" min-width="200">
             <template #default="{ row }">
               {{ getFileName(row.execution?.dest_path || row.source_path) }}
@@ -42,7 +46,9 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="created_at" label="创建时间" width="180" />
+          <el-table-column label="创建时间" width="170">
+            <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
+          </el-table-column>
           <el-table-column label="操作" width="210" fixed="right">
             <template #default="{ row }">
               <el-button type="primary" size="small" @click="viewDetail(row)">
@@ -81,8 +87,8 @@
             </div>
           </div>
           <div class="card-meta">
-            <span class="card-id">{{ row.session_id }}</span>
-            <span class="card-date">{{ row.created_at }}</span>
+            <span class="card-id" :title="row.session_id">编号 {{ shortId(row.session_id) }}</span>
+            <span class="card-date">{{ formatDate(row.created_at) }}</span>
           </div>
           <div class="card-actions">
             <el-button type="primary" size="small" @click="viewDetail(row)">查看</el-button>
@@ -138,6 +144,23 @@ async function loadHistory() {
 
 function getFileName(path: string): string {
   return path.split(/[/\\]/).pop() || path
+}
+
+function shortId(id: string): string {
+  return id.length > 10 ? `${id.slice(0, 8)}…` : id
+}
+
+function formatDate(value: string): string {
+  if (!value) return '时间未知'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value.replace('T', ' ').slice(0, 16)
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(date)
 }
 
 function getCategoryType(category: string): '' | 'success' | 'warning' | 'danger' | 'info' {
@@ -231,6 +254,11 @@ async function undoExecution(row: HistoryItem) {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.table-id {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
 }
 
 :deep(.el-table) {
@@ -358,11 +386,15 @@ async function undoExecution(row: HistoryItem) {
   justify-content: space-between;
   gap: 10px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .card-id {
   font-family: var(--font-mono);
+}
+
+.card-date {
+  white-space: nowrap;
 }
 
 .card-actions {
@@ -388,6 +420,12 @@ async function undoExecution(row: HistoryItem) {
 
   .history-card .el-button {
     min-width: 88px;
+  }
+
+  .card-meta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
   }
 }
 </style>

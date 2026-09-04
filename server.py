@@ -160,6 +160,14 @@ class ProductFeedbackRequest(BaseModel):
     context: dict[str, Any] | None = None
 
 
+class SourceRightsRequest(BaseModel):
+    rights_status: Literal[
+        "unconfirmed", "self_owned", "authorized", "public"
+    ]
+    sharing_scope: Literal["private", "restricted", "shareable"] = "private"
+    note: str = Field(default="", max_length=500)
+
+
 # =============== App ===============
 
 app = FastAPI(title="FileMate API", version="1.3.0-alpha")
@@ -577,6 +585,112 @@ def get_knowledge_source(source_id: str):
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
     return ApiResponse(success=True, data=source)
+
+
+@app.get("/knowledge/sources/{source_id}/lineage", response_model=ApiResponse)
+def get_knowledge_source_lineage(source_id: str):
+    """读取从原始资料到学习证据的可追溯资产链。"""
+    lineage = _storage.get_source_lineage(source_id)
+    if lineage is None:
+        raise HTTPException(status_code=404, detail="资料不存在")
+    return ApiResponse(success=True, data=lineage)
+
+
+@app.put("/knowledge/sources/{source_id}/rights", response_model=ApiResponse)
+def update_source_rights(source_id: str, request: SourceRightsRequest):
+    """声明资料权利来源与允许的分享范围。"""
+    from filemate.core.trusted_agents import select_agents
+
+    try:
+        rights = _storage.set_source_rights(
+            source_id=source_id,
+            rights_status=request.rights_status,
+            sharing_scope=request.sharing_scope,
+            note=request.note,
+        )
+    except ValueError as exc:
+        status_code = 404 if "不存在" in str(exc) else 422
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    run = _storage.create_agent_run(
+        task_type="source_rights",
+        goal="校验资料授权声明与分享边界",
+        selected_agents=select_agents("source_rights"),
+        context_refs={"source_id": source_id},
+    )
+    _storage.append_agent_step(
+        run_id=run["run_id"],
+        agent_name="安全 Agent",
+        input_refs={"source_id": source_id},
+        output_summary=(
+            f"授权状态已设为 {request.rights_status}，"
+            f"分享范围为 {request.sharing_scope}"
+        ),
+    )
+    _storage.finish_agent_run(run["run_id"])
+    _storage.save_agent_memory(
+        memory_type="operation",
+        scope_id=source_id,
+        source_type="source_rights",
+        source_id=source_id,
+        summary=(
+            f"资料授权：{request.rights_status}；"
+            f"分享范围：{request.sharing_scope}"
+        ),
+        allowed_agents=["安全 Agent"],
+    )
+    return ApiResponse(success=True, data=rights)
+
+
+@app.get("/trust/overview", response_model=ApiResponse)
+def get_trust_overview(limit: int = Query(50, ge=1, le=200)):
+    """汇总真实 Agent 轨迹、共享记忆元数据与资料授权。"""
+    from filemate.core.trusted_agents import describe_roles
+
+    return ApiResponse(
+        success=True,
+        data={
+            "roles": describe_roles(),
+            "runs": _storage.list_agent_runs(limit=limit),
+            "memories": _storage.list_agent_memories(limit=limit),
+            "source_rights": _storage.list_source_rights(limit=limit),
+            "mode": (
+                "local"
+                if os.getenv("FILEMATE_INTERVIEW_LOCAL_ONLY") == "1"
+                else "local_with_authorized_model"
+            ),
+            "guarantees": [
+                "资料正文保存在本机工作区，授权状态默认未确认、仅自己可用",
+                "Agent 轨迹只记录来源标识和执行摘要，不复制面试回答原文",
+                "共享记忆可查看、可单条删除，删除后不再向 Agent 提供",
+                "授权未确认的资料不能调整为受限分享或可分享",
+            ],
+        },
+    )
+
+
+@app.delete("/agents/memories/{memory_id}", response_model=ApiResponse)
+def delete_agent_memory(memory_id: str):
+    """撤销一条共享记忆的后续使用权限。"""
+    from filemate.core.trusted_agents import select_agents
+
+    deleted = _storage.soft_delete_agent_memory(memory_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="共享记忆不存在或已删除")
+    run = _storage.create_agent_run(
+        task_type="memory_deletion",
+        goal="撤销共享记忆的后续使用权限",
+        selected_agents=select_agents("memory_deletion"),
+        context_refs={"memory_id": memory_id},
+    )
+    _storage.append_agent_step(
+        run_id=run["run_id"],
+        agent_name="安全 Agent",
+        input_refs={"memory_id": memory_id},
+        output_summary="共享记忆已撤销，后续 Agent 查询默认不可见",
+    )
+    _storage.finish_agent_run(run["run_id"])
+    return ApiResponse(success=True, data={"deleted": True})
 
 
 @app.get("/knowledge/sources/{source_id}/artifacts", response_model=ApiResponse)
@@ -1083,10 +1197,26 @@ class InterviewStartRequest(BaseModel):
     target_role: str = Field(max_length=120)
     scenario: Literal["求职面试", "竞赛答辩", "保研复试"] = "求职面试"
     difficulty: Literal["入门", "标准", "压力面"] = "标准"
+    source_id: str | None = Field(default=None, max_length=64)
+
+
+class InterviewFluencyMarker(BaseModel):
+    second: float = Field(ge=0, le=3600)
+    kind: Literal["long_pause", "filler"]
+    label: str = Field(min_length=1, max_length=80)
+
+
+class InterviewFluencyMetrics(BaseModel):
+    duration_seconds: float = Field(ge=0, le=3600)
+    filler_count: int = Field(default=0, ge=0, le=100)
+    long_pause_count: int = Field(default=0, ge=0, le=100)
+    source: Literal["speech_recognition"] = "speech_recognition"
+    markers: list[InterviewFluencyMarker] = Field(default_factory=list, max_length=100)
 
 
 class InterviewAnswerRequest(BaseModel):
-    answer: str
+    answer: str = Field(min_length=1, max_length=12000)
+    fluency_metrics: InterviewFluencyMetrics | None = None
 
 
 class InterviewQuestionCreate(BaseModel):
@@ -1104,6 +1234,18 @@ class InterviewQuestionUpdate(BaseModel):
 
 
 class StudyPlanDayRequest(BaseModel):
+    completed: bool
+
+
+class ReverseGoalRequest(BaseModel):
+    title: str = Field(min_length=2, max_length=160)
+    goal_type: Literal["exam", "competition", "job", "postgraduate", "custom"]
+    deadline: date
+    target_score: int | None = Field(default=None, ge=0, le=100)
+    source_id: str | None = Field(default=None, max_length=64)
+
+
+class GoalTaskUpdateRequest(BaseModel):
     completed: bool
 
 
@@ -1165,6 +1307,177 @@ def update_study_plan_day(
         status_code = 404 if detail == "学习计划不存在" else 422
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return ApiResponse(success=True, data=plan)
+
+
+def _goal_from_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
+    """把目标 Artifact 转成前端合同。"""
+    content = dict(artifact.get("content") or {})
+    content["goal_id"] = artifact["artifact_id"]
+    content["created_at"] = artifact["created_at"]
+    content["updated_at"] = artifact["updated_at"]
+    return content
+
+
+def _run_goal_agents(
+    *,
+    title: str,
+    source_id: str | None,
+    gap_count: int,
+    task_count: int,
+) -> str:
+    """记录规划与学习教练的真实协作步骤。"""
+    from filemate.core.trusted_agents import select_agents
+
+    run = _storage.create_agent_run(
+        task_type="study_plan",
+        goal=f"从真实学习证据反推目标：{title}",
+        selected_agents=select_agents("study_plan"),
+        context_refs={"source_id": source_id},
+    )
+    _storage.append_agent_step(
+        run_id=run["run_id"],
+        agent_name="规划 Agent",
+        input_refs={"source_id": source_id, "analytics": "local_snapshot"},
+        output_summary=f"已对照本地行为证据识别 {gap_count} 个待提升项",
+    )
+    _storage.append_agent_step(
+        run_id=run["run_id"],
+        agent_name="学习教练 Agent",
+        input_refs={"gap_count": gap_count},
+        output_summary=f"已生成 {task_count} 项可执行任务并分配截止日期",
+    )
+    _storage.finish_agent_run(run["run_id"])
+    return str(run["run_id"])
+
+
+@app.post("/goals/reverse-plan", response_model=ApiResponse)
+def create_reverse_goal(request: ReverseGoalRequest):
+    """从目标和真实学习证据反推缺口与行动任务。"""
+    if request.deadline < datetime.now().astimezone().date():
+        raise HTTPException(status_code=422, detail="目标截止日期不能早于今天")
+    source = _storage.get_source(request.source_id) if request.source_id else None
+    if request.source_id and source is None:
+        raise HTTPException(status_code=404, detail="所选目标资料不存在")
+
+    from filemate.study import build_reverse_goal_plan
+
+    plan = build_reverse_goal_plan(
+        title=request.title,
+        goal_type=request.goal_type,
+        deadline=request.deadline,
+        target_score=request.target_score,
+        analytics=_storage.get_learning_analytics(),
+        source_id=request.source_id,
+        source_name=source.get("original_name") if source else None,
+    )
+    run_id = _run_goal_agents(
+        title=request.title,
+        source_id=request.source_id,
+        gap_count=sum(1 for item in plan["gaps"] if item["status"] == "gap"),
+        task_count=len(plan["tasks"]),
+    )
+    plan["last_agent_run_id"] = run_id
+    artifact_id = _storage.save_artifact(
+        artifact_type="reverse_goal_plan",
+        source_id=request.source_id,
+        title=request.title.strip(),
+        content=plan,
+        metadata={"goal_type": request.goal_type, "agent_run_id": run_id},
+    )
+    _storage.save_agent_memory(
+        memory_type="session",
+        scope_id=artifact_id,
+        source_type="reverse_goal",
+        source_id=artifact_id,
+        summary=f"目标：{request.title.strip()}；截止：{request.deadline.isoformat()}",
+        allowed_agents=["规划 Agent", "学习教练 Agent"],
+    )
+    artifact = _storage.get_artifact(artifact_id)
+    if artifact is None:
+        raise HTTPException(status_code=500, detail="目标计划保存失败")
+    return ApiResponse(success=True, data=_goal_from_artifact(artifact))
+
+
+@app.get("/goals", response_model=ApiResponse)
+def list_reverse_goals(limit: int = Query(20, ge=1, le=100)):
+    """列出已保存的目标反推计划。"""
+    artifacts = _storage.list_artifacts(
+        artifact_type="reverse_goal_plan",
+        limit=limit,
+    )
+    return ApiResponse(
+        success=True,
+        data=[_goal_from_artifact(item) for item in artifacts],
+    )
+
+
+@app.patch("/goals/{goal_id}/tasks/{task_id}", response_model=ApiResponse)
+def update_reverse_goal_task(
+    goal_id: str,
+    task_id: str,
+    request: GoalTaskUpdateRequest,
+):
+    """持久化目标任务完成状态。"""
+    artifact = _storage.get_artifact(goal_id)
+    if artifact is None or artifact.get("artifact_type") != "reverse_goal_plan":
+        raise HTTPException(status_code=404, detail="目标计划不存在")
+    content = dict(artifact.get("content") or {})
+    tasks = list(content.get("tasks") or [])
+    matched = False
+    for task in tasks:
+        if str(task.get("task_id")) == task_id:
+            task["status"] = "completed" if request.completed else "pending"
+            matched = True
+            break
+    if not matched:
+        raise HTTPException(status_code=404, detail="目标任务不存在")
+    content["tasks"] = tasks
+    updated = _storage.update_artifact(
+        goal_id,
+        title=str(artifact["title"]),
+        content=content,
+    )
+    return ApiResponse(success=True, data=_goal_from_artifact(updated))
+
+
+@app.post("/goals/{goal_id}/replan", response_model=ApiResponse)
+def replan_reverse_goal(goal_id: str):
+    """根据当前证据重新计算缺口，并保留已完成任务。"""
+    artifact = _storage.get_artifact(goal_id)
+    if artifact is None or artifact.get("artifact_type") != "reverse_goal_plan":
+        raise HTTPException(status_code=404, detail="目标计划不存在")
+    current = dict(artifact.get("content") or {})
+    deadline = date.fromisoformat(str(current["deadline"]))
+    if deadline < datetime.now().astimezone().date():
+        raise HTTPException(status_code=409, detail="目标已过截止日期，请新建目标")
+    source_id = artifact.get("source_id")
+    source = _storage.get_source(source_id) if source_id else None
+
+    from filemate.study import build_reverse_goal_plan
+
+    plan = build_reverse_goal_plan(
+        title=str(current["title"]),
+        goal_type=str(current["goal_type"]),
+        deadline=deadline,
+        target_score=current.get("target_score"),
+        analytics=_storage.get_learning_analytics(),
+        source_id=source_id,
+        source_name=source.get("original_name") if source else None,
+        previous_tasks=current.get("tasks") or [],
+    )
+    run_id = _run_goal_agents(
+        title=str(current["title"]),
+        source_id=source_id,
+        gap_count=sum(1 for item in plan["gaps"] if item["status"] == "gap"),
+        task_count=len(plan["tasks"]),
+    )
+    plan["last_agent_run_id"] = run_id
+    updated = _storage.update_artifact(
+        goal_id,
+        title=str(artifact["title"]),
+        content=plan,
+    )
+    return ApiResponse(success=True, data=_goal_from_artifact(updated))
 
 
 @app.post("/quiz/attempts", response_model=ApiResponse)
@@ -1509,7 +1822,24 @@ def delete_interview_question(question_id: str):
 def start_interview(request: InterviewStartRequest):
     """创建一场可持续复盘的模拟面试。"""
     from filemate.llm_client import LLMClient, LLMConfig
-    from filemate.understanding import build_interview_questions
+    from filemate.understanding import (
+        build_interview_questions,
+        build_source_grounded_question,
+    )
+
+    source = None
+    context_excerpt = ""
+    source_context_mode = "none"
+    if request.source_id:
+        source = _storage.get_source(request.source_id)
+        if source is None:
+            raise HTTPException(status_code=404, detail="所选面试资料不存在")
+        rights = _storage.get_source_rights(request.source_id)
+        if rights and rights["rights_status"] != "unconfirmed":
+            context_excerpt = str(source.get("raw_text", ""))[:2000]
+            source_context_mode = "authorized_excerpt"
+        else:
+            source_context_mode = "local_metadata_only"
 
     try:
         llm = LLMClient(LLMConfig.from_env())
@@ -1523,16 +1853,92 @@ def start_interview(request: InterviewStartRequest):
         difficulty=request.difficulty,
         target_role=request.target_role,
         limit=5,
+        context_excerpt=context_excerpt,
+    )
+    from filemate.core.trusted_agents import select_agents
+
+    target_role = request.target_role.strip() or "通用岗位"
+    if source is not None:
+        grounded_question = build_source_grounded_question(
+            str(source["original_name"]),
+            request.scenario,
+            target_role,
+        )
+        remaining = [
+            (question, question_id)
+            for question, question_id in zip(questions, question_ids, strict=True)
+            if question != grounded_question
+        ][:4]
+        questions = [grounded_question, *[item[0] for item in remaining]]
+        question_ids = [None, *[item[1] for item in remaining]]
+    run = _storage.create_agent_run(
+        task_type="interview_session",
+        goal=f"围绕{target_role}完成可复盘的{request.scenario}",
+        selected_agents=select_agents("interview_session"),
+        context_refs={
+            "scenario": request.scenario,
+            "difficulty": request.difficulty,
+            "question_ids": question_ids,
+            "source_id": request.source_id,
+            "source_context_mode": source_context_mode,
+        },
     )
     interview = _storage.create_interview(
-        target_role=request.target_role.strip() or "通用岗位",
+        target_role=target_role,
         scenario=request.scenario,
         difficulty=request.difficulty,
         questions=questions,
         question_ids=question_ids,
+        agent_run_id=run["run_id"],
+    )
+    _storage.append_agent_step(
+        run_id=run["run_id"],
+        agent_name="面试 Agent",
+        input_refs={
+            "interview_id": interview["interview_id"],
+            "question_ids": question_ids,
+        },
+        output_summary=(
+            f"已按{request.scenario}·{request.difficulty}选择 "
+            f"{len(questions)} 道问题"
+        ),
+    )
+    _storage.save_agent_memory(
+        memory_type="session",
+        scope_id=interview["interview_id"],
+        source_type="interview_goal",
+        source_id=interview["interview_id"],
+        summary=(
+            f"目标：{target_role}；场景：{request.scenario}"
+            + (
+                f"；依据资料：{source['original_name']}"
+                if source is not None
+                else ""
+            )
+        ),
+        allowed_agents=["面试 Agent", "评价 Agent"],
     )
     interview["current_question"] = interview["questions"][0]
+    interview["source_context"] = {
+        "source_id": request.source_id,
+        "source_name": source["original_name"] if source is not None else None,
+        "mode": source_context_mode,
+    }
     return ApiResponse(success=True, data=interview)
+
+
+def _attach_interview_source_context(interview: dict[str, Any]) -> None:
+    """从 Agent 运行记录恢复面试资料来源，不复制资料正文。"""
+    run_id = interview.get("agent_run_id")
+    run = _storage.get_agent_run(run_id) if run_id else None
+    refs = run.get("context_refs", {}) if run else {}
+    source_id = refs.get("source_id")
+    source = _storage.get_source(source_id) if source_id else None
+    interview["source_context"] = {
+        "source_id": source_id,
+        "source_name": source.get("original_name") if source else None,
+        "mode": refs.get("source_context_mode", "none"),
+    }
 
 
 @app.get("/interviews/{interview_id}", response_model=ApiResponse)
@@ -1545,6 +1951,7 @@ def get_interview(interview_id: str):
     interview["current_question"] = (
         interview["questions"][index] if index < len(interview["questions"]) else None
     )
+    _attach_interview_source_context(interview)
     return ApiResponse(success=True, data=interview)
 
 
@@ -1574,6 +1981,7 @@ def answer_interview(interview_id: str, request: InterviewAnswerRequest):
         question,
         request.answer,
         interview["target_role"],
+        request.fluency_metrics.model_dump() if request.fluency_metrics else None,
     )
     updated = _storage.save_interview_turn(
         interview_id=interview_id,
@@ -1583,7 +1991,35 @@ def answer_interview(interview_id: str, request: InterviewAnswerRequest):
         score=evaluation["score"],
         dimensions=evaluation["dimensions"],
         feedback=evaluation["feedback"],
+        fluency_metrics=evaluation.get("fluency"),
     )
+    run_id = interview.get("agent_run_id")
+    if run_id:
+        _storage.append_agent_step(
+            run_id=run_id,
+            agent_name="评价 Agent",
+            input_refs={
+                "interview_id": interview_id,
+                "question_index": index,
+            },
+            output_summary=(
+                f"第 {index + 1} 题得分 {evaluation['score']}；"
+                f"已记录 {len(evaluation['dimensions'])} 个评分维度"
+            ),
+        )
+        _storage.save_agent_memory(
+            memory_type="growth",
+            scope_id=interview_id,
+            source_type="interview_turn",
+            source_id=f"{interview_id}:{index}",
+            summary=(
+                f"{interview['scenario']}第 {index + 1} 题得分 "
+                f"{evaluation['score']}，用于后续复盘"
+            ),
+            allowed_agents=["评价 Agent", "规划 Agent", "学习教练 Agent"],
+        )
+        if updated["status"] == "completed":
+            _storage.finish_agent_run(run_id)
     next_index = updated["current_index"]
     updated["current_question"] = (
         updated["questions"][next_index]
@@ -1591,6 +2027,7 @@ def answer_interview(interview_id: str, request: InterviewAnswerRequest):
         else None
     )
     updated["latest_evaluation"] = evaluation
+    _attach_interview_source_context(updated)
     return ApiResponse(success=True, data=updated)
 
 

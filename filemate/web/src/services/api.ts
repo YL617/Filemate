@@ -560,10 +560,28 @@ export interface InterviewTurn {
   score: number
   dimensions: Record<string, number>
   feedback: string
+  fluency_metrics?: InterviewFluencyMetrics
+}
+
+export interface InterviewFluencyMetrics {
+  duration_seconds: number
+  chars_per_minute?: number
+  filler_count: number
+  long_pause_count: number
+  reference_score?: number
+  source: 'speech_recognition'
+  markers?: InterviewFluencyMarker[]
+}
+
+export interface InterviewFluencyMarker {
+  second: number
+  kind: 'long_pause' | 'filler'
+  label: string
 }
 
 export interface InterviewSession {
   interview_id: string
+  agent_run_id?: string | null
   target_role: string
   scenario: string
   difficulty: string
@@ -575,17 +593,24 @@ export interface InterviewSession {
   overall_score: number
   turns: InterviewTurn[]
   latest_evaluation?: InterviewEvaluation
+  source_context?: {
+    source_id: string | null
+    source_name: string | null
+    mode: 'none' | 'local_metadata_only' | 'authorized_excerpt'
+  }
 }
 
 export async function startInterview(
   targetRole: string,
   scenario: string,
-  difficulty: string
+  difficulty: string,
+  sourceId?: string
 ): Promise<InterviewSession> {
   const response = await api.post<any, ApiResponse<InterviewSession>>('/interviews', {
     target_role: targetRole,
     scenario,
-    difficulty
+    difficulty,
+    source_id: sourceId || null
   })
   if (response.success && response.data) return response.data
   throw new Error(response.error || '创建模拟面试失败')
@@ -593,11 +618,12 @@ export async function startInterview(
 
 export async function answerInterview(
   interviewId: string,
-  answer: string
+  answer: string,
+  fluencyMetrics?: InterviewFluencyMetrics
 ): Promise<InterviewSession> {
   const response = await api.post<any, ApiResponse<InterviewSession>>(
     `/interviews/${interviewId}/answers`,
-    { answer }
+    { answer, fluency_metrics: fluencyMetrics }
   )
   if (response.success && response.data) return response.data
   throw new Error(response.error || '面试回答评分失败')
@@ -773,6 +799,170 @@ export interface KnowledgeSource {
   created_at: string
 }
 
+export type ReverseGoalType = 'exam' | 'competition' | 'job' | 'postgraduate' | 'custom'
+
+export interface ReverseGoalGap {
+  name: string
+  current: string
+  target: string
+  status: 'ready' | 'gap'
+  evidence: string
+}
+
+export interface ReverseGoalTask {
+  task_id: string
+  title: string
+  reason: string
+  route: string
+  status: 'pending' | 'completed'
+  due_date: string
+}
+
+export interface ReverseGoalPlan {
+  goal_id: string
+  title: string
+  goal_type: ReverseGoalType
+  deadline: string
+  target_score: number | null
+  source_id: string | null
+  source_name: string | null
+  evidence_snapshot: Record<string, number>
+  evidence_status: 'ready' | 'insufficient'
+  gaps: ReverseGoalGap[]
+  tasks: ReverseGoalTask[]
+  last_agent_run_id: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ReverseGoalPayload {
+  title: string
+  goal_type: ReverseGoalType
+  deadline: string
+  target_score?: number | null
+  source_id?: string | null
+}
+
+export async function createReverseGoal(payload: ReverseGoalPayload): Promise<ReverseGoalPlan> {
+  const response = await api.post<any, ApiResponse<ReverseGoalPlan>>('/goals/reverse-plan', payload)
+  if (response.success && response.data) return response.data
+  throw new Error(response.error || '目标反推失败')
+}
+
+export async function getReverseGoals(limit = 20): Promise<ReverseGoalPlan[]> {
+  const response = await api.get<any, ApiResponse<ReverseGoalPlan[]>>(`/goals?limit=${limit}`)
+  if (response.success && response.data) return response.data
+  throw new Error(response.error || '目标计划加载失败')
+}
+
+export async function updateReverseGoalTask(
+  goalId: string,
+  taskId: string,
+  completed: boolean
+): Promise<ReverseGoalPlan> {
+  const response = await api.patch<any, ApiResponse<ReverseGoalPlan>>(
+    `/goals/${goalId}/tasks/${taskId}`,
+    { completed }
+  )
+  if (response.success && response.data) return response.data
+  throw new Error(response.error || '目标任务更新失败')
+}
+
+export async function replanReverseGoal(goalId: string): Promise<ReverseGoalPlan> {
+  const response = await api.post<any, ApiResponse<ReverseGoalPlan>>(`/goals/${goalId}/replan`)
+  if (response.success && response.data) return response.data
+  throw new Error(response.error || '重新评估目标失败')
+}
+
+export type SourceRightsStatus = 'unconfirmed' | 'self_owned' | 'authorized' | 'public'
+export type SourceSharingScope = 'private' | 'restricted' | 'shareable'
+
+export interface SourceRights {
+  source_id: string
+  original_name: string
+  media_type: string
+  rights_status: SourceRightsStatus
+  sharing_scope: SourceSharingScope
+  note: string
+  confirmed_at: string | null
+  updated_at: string
+}
+
+export interface AgentStep {
+  step_id: string
+  sequence: number
+  agent_name: string
+  status: 'completed' | 'failed' | 'blocked'
+  input_refs: Record<string, any>
+  output_summary: string
+  created_at: string
+}
+
+export interface AgentRun {
+  run_id: string
+  task_type: string
+  goal: string
+  status: 'running' | 'completed' | 'failed'
+  selected_agents: string[]
+  context_refs: Record<string, any>
+  steps: AgentStep[]
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentMemory {
+  memory_id: string
+  memory_type: 'session' | 'knowledge' | 'growth' | 'operation'
+  scope_id: string
+  source_type: string
+  source_id: string
+  summary: string
+  allowed_agents: string[]
+  expires_at: string | null
+  deleted_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface TrustOverview {
+  roles: Array<{ name: string; responsibility: string }>
+  runs: AgentRun[]
+  memories: AgentMemory[]
+  source_rights: SourceRights[]
+  mode: 'local' | 'local_with_authorized_model'
+  guarantees: string[]
+}
+
+export async function getTrustOverview(limit = 50): Promise<TrustOverview> {
+  const response = await api.get<any, ApiResponse<TrustOverview>>(
+    `/trust/overview?limit=${limit}`
+  )
+  if (response.success && response.data) return response.data
+  throw new Error(response.error || '可信与隐私数据加载失败')
+}
+
+export async function updateSourceRights(
+  sourceId: string,
+  rightsStatus: SourceRightsStatus,
+  sharingScope: SourceSharingScope,
+  note = ''
+): Promise<SourceRights> {
+  const response = await api.put<any, ApiResponse<SourceRights>>(
+    `/knowledge/sources/${sourceId}/rights`,
+    { rights_status: rightsStatus, sharing_scope: sharingScope, note }
+  )
+  if (response.success && response.data) return response.data
+  throw new Error(response.error || '资料授权声明保存失败')
+}
+
+export async function deleteAgentMemory(memoryId: string): Promise<void> {
+  const response = await api.delete<any, ApiResponse<{ deleted: boolean }>>(
+    `/agents/memories/${memoryId}`
+  )
+  if (response.success && response.data?.deleted) return
+  throw new Error(response.error || '共享记忆撤销失败')
+}
+
 export interface KnowledgeArtifact {
   artifact_id: string
   source_id: string | null
@@ -782,6 +972,24 @@ export interface KnowledgeArtifact {
   metadata: Record<string, any>
   created_at: string
   updated_at: string
+}
+
+export interface KnowledgeLineageStage {
+  key: 'source' | 'understanding' | 'practice' | 'review' | 'plan' | 'interview'
+  label: string
+  state: 'ready' | 'empty'
+  primary: string
+  secondary: string
+}
+
+export interface KnowledgeLineage {
+  source_id: string
+  source_name: string
+  rights: SourceRights
+  artifact_counts: Record<string, number>
+  stages: KnowledgeLineageStage[]
+  completed_stage_count: number
+  total_stage_count: number
 }
 
 export interface KnowledgeSearchResult {
@@ -835,6 +1043,14 @@ export async function getKnowledgeArtifacts(sourceId: string): Promise<Knowledge
   )
   if (response.success && response.data) return response.data
   throw new Error(response.error || '获取学习产物失败')
+}
+
+export async function getKnowledgeLineage(sourceId: string): Promise<KnowledgeLineage> {
+  const response = await api.get<any, ApiResponse<KnowledgeLineage>>(
+    `/knowledge/sources/${sourceId}/lineage`
+  )
+  if (response.success && response.data) return response.data
+  throw new Error(response.error || '学习资产链加载失败')
 }
 
 export async function getKnowledgeArtifact(artifactId: string): Promise<KnowledgeArtifact> {

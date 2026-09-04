@@ -1,14 +1,19 @@
 :root {
   color-scheme: light;
-  --bg-base: #f5f8f4;
+  --bg-base: #f4f8f7;
   --bg-surface: #ffffff;
-  --bg-elevated: #edf4ee;
-  --bg-hover: #e5efe7;
-  --text-primary: #183229;
-  --text-secondary: #4d655b;
-  --text-muted: #6d8077;
-  --border-subtle: #d7e3d9;
-  --border-strong: #bfd0c3;
+  --bg-elevated: #eef5f3;
+  --bg-hover: #e6f0ee;
+  --text-primary: #17304f;
+  --text-secondary: #425e68;
+  --text-muted: #687d83;
+  --border-subtle: #d8e4e1;
+  --border-strong: #bfd1cd;
+  --border-default: #bfd1cd;
+  --brand-blue: #2563eb;
+  --brand-blue-strong: #1d4ed8;
+  --brand-blue-soft: #eaf2ff;
+  --brand-blue-border: #b8d2ff;
   --accent: #2f7d55;
   --accent-hover: #256847;
   --accent-soft: #e5f1e8;
@@ -39,9 +44,9 @@
   --el-fill-color-blank: #ffffff;
   --el-fill-color-light: #edf4ee;
   --el-fill-color-lighter: #f5f8f4;
-  --el-text-color-primary: #183229;
-  --el-text-color-regular: #4d655b;
-  --el-text-color-secondary: #6d8077;
+  --el-text-color-primary: #17304f;
+  --el-text-color-regular: #425e68;
+  --el-text-color-secondary: #687d83;
   --el-border-color: #bfd0c3;
   --el-border-color-light: #d7e3d9;
   --el-border-color-lighter: #e6eee8;
@@ -66,6 +71,10 @@ body {
   background: var(--bg-base);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+img {
+  max-width: 100%;
 }
 
 button,
@@ -130,6 +139,11 @@ textarea:focus-visible,
 .el-button {
   min-height: 40px;
   border-radius: var(--radius-control);
+  transition:
+    color var(--motion-fast),
+    background-color var(--motion-fast),
+    border-color var(--motion-fast),
+    transform var(--motion-fast);
 }
 
 .el-button--primary {
@@ -137,15 +151,12 @@ textarea:focus-visible,
   font-weight: 650;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
+.el-button:not(.is-disabled):hover {
+  transform: translateY(-1px);
+}
+
+.el-button:not(.is-disabled):active {
+  transform: translateY(0);
 }
 
 .el-card,
@@ -166,6 +177,10 @@ textarea:focus-visible,
 .el-dialog__header,
 .el-dialog__footer {
   border-color: var(--border-subtle);
+}
+
+.el-message {
+  max-width: calc(100vw - 32px);
 }
 
 .el-input__wrapper,
@@ -193,5 +208,11 @@ textarea:focus-visible,
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .el-message {
+    top: calc(var(--topbar-height) + 12px) !important;
   }
 }

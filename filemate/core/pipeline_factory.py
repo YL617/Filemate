@@ -291,7 +291,7 @@ class PipelineBuilder:
                 from filemate.core.registry import get_registry
                 llm = get_registry().get_llm()
                 namer = Namer(llm)
-                course = session.entities.get("course_name") or "未分类"
+                course = session.entities.get("course_name") or ""
                 task = session.entities.get("task_description") or "未命名"
                 deadline = session.entities.get("deadline") or ""
                 session.suggested_name = namer.generate(
@@ -300,6 +300,7 @@ class PipelineBuilder:
                     task=task,
                     deadline=deadline,
                     status="待处理",
+                    extra_entities=session.entities.get("extra_entities"),
                 )
             except Exception as exc:
                 logger.warning("命名生成阶段失败: %s", exc)

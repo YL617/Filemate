@@ -1,12 +1,20 @@
 <template>
   <div class="schedule-page">
     <WorkflowSteps :current="4" />
-    <el-alert
-      title="请先在导入页面上传文件"
-      type="info"
-      :closable="false"
-      v-if="!currentFile && !loadError"
-    />
+    <section v-if="!currentFile && !loadError" class="schedule-entry-empty">
+      <div class="empty-icon-wrap">
+        <el-icon size="42"><Calendar /></el-icon>
+      </div>
+      <div class="empty-copy">
+        <span>还差一份资料</span>
+        <h2>导入资料后，重要日期会自动排成日程</h2>
+        <p>FileMate 会从资料中提取截止日期与关键事项；所有结果都可先核对，再下载为日历文件。</p>
+      </div>
+      <el-button type="primary" @click="$router.push('/import')">
+        <el-icon><Upload /></el-icon>
+        导入资料
+      </el-button>
+    </section>
 
     <el-card v-else-if="loadError">
       <DataState :error="loadError" @retry="loadSession" />
@@ -240,6 +248,48 @@ function updateChart() {
   margin: 0 auto;
 }
 
+.schedule-entry-empty {
+  min-height: 280px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 22px;
+  padding: 40px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background:
+    radial-gradient(circle at 92% 14%, rgba(37, 99, 235, 0.1), transparent 30%),
+    linear-gradient(135deg, var(--bg-surface), #f3faf6);
+}
+
+.schedule-entry-empty .empty-icon-wrap {
+  margin: 0;
+  width: 84px;
+  height: 84px;
+  color: var(--brand-blue);
+  background: var(--brand-blue-soft);
+  border: 1px solid var(--brand-blue-border);
+}
+
+.empty-copy span {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.empty-copy h2 {
+  margin: 7px 0 9px;
+  font-size: 22px;
+  line-height: 1.35;
+}
+
+.empty-copy p {
+  max-width: 560px;
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
 /* Empty state styling */
 .empty-schedule {
   display: flex;
@@ -285,5 +335,19 @@ function updateChart() {
 .ics-actions {
   margin-top: 20px;
   text-align: center;
+}
+
+@media (max-width: 700px) {
+  .schedule-entry-empty {
+    min-height: 360px;
+    grid-template-columns: 1fr;
+    justify-items: start;
+    align-content: center;
+    padding: 28px 24px;
+  }
+
+  .schedule-entry-empty .el-button {
+    min-height: 44px;
+  }
 }
 </style>

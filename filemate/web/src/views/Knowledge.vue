@@ -1,6 +1,6 @@
 <template>
   <div class="knowledge-page">
-    <header class="page-head"><div><p class="eyebrow">LOCAL KNOWLEDGE BASE</p><h1>个人知识库</h1><p>统一管理已解析资料，跨文档检索并核验引用位置。</p></div><router-link class="import-link" to="/ai-tools">添加学习资料</router-link></header>
+    <header class="page-head"><div><h1>个人知识库</h1><p>统一管理已解析资料，跨文档检索并核验引用位置。</p></div><router-link class="import-link" to="/ai-tools">添加学习资料</router-link></header>
 
     <section class="search-panel">
       <div class="search-row">
@@ -28,7 +28,7 @@
       <div v-if="loading" class="empty" aria-live="polite">正在读取本地知识库…</div>
       <DataState v-else-if="error" :error="error" @retry="load" />
       <div v-else-if="sources.length" class="source-grid">
-        <article v-for="source in sources" :key="source.source_id" class="source-card">
+        <article v-for="source in sources" :key="source.source_id" class="source-card" :class="{ expanded: expandedSource === source.source_id }">
           <div class="file-mark">{{ suffix(source.original_name) }}</div>
           <div class="source-copy"><h3>{{ source.original_name }}</h3><p>{{ source.text_length.toLocaleString('zh-CN') }} 字 · {{ formatDate(source.created_at) }}</p></div>
           <div class="source-actions">
@@ -37,12 +37,23 @@
           </div>
           <div v-if="expandedSource === source.source_id" class="artifact-list">
             <p v-if="artifactLoading">正在加载…</p>
-            <template v-else-if="artifacts.length"><button v-for="artifact in artifacts" :key="artifact.artifact_id" type="button" @click="openArtifact(artifact.artifact_id)"><span>{{ artifactLabel(artifact.artifact_type) }}</span><b>{{ artifact.title || '未命名产物' }}</b><em>打开</em></button></template>
-            <p v-else>该资料暂无学习产物</p>
+            <template v-else>
+              <div v-if="lineage" class="lineage-head"><div><span>学习资产链</span><strong>同一份资料如何转化为可验证能力</strong></div><b>{{ lineage.completed_stage_count }}/{{ lineage.total_stage_count }} 环已形成</b></div>
+              <div v-if="lineage" class="lineage-rail">
+                <article v-for="(stage,index) in lineage.stages" :key="stage.key" :class="stage.state"><span>{{ String(index + 1).padStart(2, '0') }}</span><strong>{{ stage.label }}</strong><p>{{ stage.primary }}</p><small>{{ stage.secondary }}</small></article>
+              </div>
+              <div v-if="artifacts.length" class="artifact-items"><button v-for="artifact in artifacts" :key="artifact.artifact_id" type="button" @click="openArtifact(artifact.artifact_id)"><span>{{ artifactLabel(artifact.artifact_type) }}</span><b>{{ artifact.title || '未命名产物' }}</b><em>打开</em></button></div>
+              <p v-else>该资料暂无学习产物，可从资料理解开始形成资产链。</p>
+            </template>
           </div>
         </article>
       </div>
-      <div v-else class="empty"><strong>知识库还是空的</strong><span>在“资料理解”中生成摘要、知识卡或练习题后，资料会自动入库。</span><router-link to="/ai-tools">去添加第一份资料</router-link></div>
+      <div v-else class="empty library-empty">
+        <span class="empty-icon"><el-icon><FolderOpened /></el-icon></span>
+        <strong>知识库还是空的</strong>
+        <span>在“资料理解”中生成摘要、知识卡或练习题后，资料会自动入库。</span>
+        <router-link to="/ai-tools"><el-icon><DocumentAdd /></el-icon>添加第一份资料</router-link>
+      </div>
     </section>
 
     <Teleport to="body">
@@ -64,17 +75,19 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { deleteKnowledgeSource, getKnowledgeArtifact, getKnowledgeArtifacts, getKnowledgeSources, searchKnowledge, submitProductFeedback, updateKnowledgeArtifact, type KnowledgeArtifact, type KnowledgeSearchResult, type KnowledgeSource } from '../services/api'
+import { DocumentAdd, FolderOpened } from '@element-plus/icons-vue'
+import { deleteKnowledgeSource, getKnowledgeArtifact, getKnowledgeArtifacts, getKnowledgeLineage, getKnowledgeSources, searchKnowledge, submitProductFeedback, updateKnowledgeArtifact, type KnowledgeArtifact, type KnowledgeLineage, type KnowledgeSearchResult, type KnowledgeSource } from '../services/api'
 import DataState from '../components/DataState.vue'
 
 const sources=ref<KnowledgeSource[]>([]); const results=ref<KnowledgeSearchResult[]>([]); const artifacts=ref<KnowledgeArtifact[]>([])
 const query=ref(''); const selectedSource=ref(''); const loading=ref(true); const error=ref(''); const searching=ref(false); const hasSearched=ref(false); const expandedSource=ref(''); const artifactLoading=ref(false)
 const feedbackState=ref<Record<string,1|-1>>({})
 const selectedArtifact=ref<KnowledgeArtifact|null>(null); const editing=ref(false); const saving=ref(false); const draftTitle=ref(''); const draftContent=ref(''); const structuredContent=ref(false); const deletingSource=ref('')
+const lineage=ref<KnowledgeLineage|null>(null)
 const load=async()=>{loading.value=true;error.value='';try{sources.value=await getKnowledgeSources()}catch(e:any){error.value=e?.message||'知识库加载失败';ElMessage.error(error.value)}finally{loading.value=false}}
 const search=async()=>{if(!query.value)return;searching.value=true;try{results.value=await searchKnowledge(query.value,selectedSource.value||undefined);hasSearched.value=true}catch(error:any){ElMessage.error(error.message||'检索失败')}finally{searching.value=false}}
 const rateResult=async(result:KnowledgeSearchResult,index:number,rating:1|-1)=>{try{await submitProductFeedback('retrieval',`${query.value}:${result.chunk_id}`,rating,{rank:index+1,score:result.score,query_length:query.value.length,query_token_count:query.value.trim().split(/\s+/).filter(Boolean).length,result_type:'chunk'});feedbackState.value[result.chunk_id]=rating;ElMessage.success('匿名相关性反馈已记录')}catch(error:any){ElMessage.error(error.message||'反馈保存失败')}}
-const toggleArtifacts=async(sourceId:string)=>{if(expandedSource.value===sourceId){expandedSource.value='';return}expandedSource.value=sourceId;artifactLoading.value=true;try{artifacts.value=await getKnowledgeArtifacts(sourceId)}catch(error:any){ElMessage.error(error.message||'产物加载失败')}finally{artifactLoading.value=false}}
+const toggleArtifacts=async(sourceId:string)=>{if(expandedSource.value===sourceId){expandedSource.value='';lineage.value=null;return}expandedSource.value=sourceId;artifactLoading.value=true;try{const [artifactList,lineageData]=await Promise.all([getKnowledgeArtifacts(sourceId),getKnowledgeLineage(sourceId)]);artifacts.value=artifactList;lineage.value=lineageData}catch(error:any){ElMessage.error(error.message||'学习资产链加载失败')}finally{artifactLoading.value=false}}
 const suffix=(name:string)=>name.includes('.')?name.split('.').pop()!.slice(0,4).toUpperCase():'DOC'
 const formatDate=(value:string)=>new Intl.DateTimeFormat('zh-CN',{month:'short',day:'numeric'}).format(new Date(value))
 const artifactLabel=(type:string)=>({summary:'摘要',knowledge_cards:'知识卡',questions:'练习题',notes:'笔记',study_plan:'学习计划'}[type]||type)
@@ -94,4 +107,226 @@ onMounted(load)
 .artifact-list>button{width:100%;display:grid;grid-template-columns:72px 1fr auto;gap:9px;padding:9px 6px;border:0;border-radius:7px;background:transparent;color:var(--text-primary);text-align:left;font-size:12px;cursor:pointer}.artifact-list>button:hover{background:var(--accent-soft)}.artifact-list>button span{color:var(--accent)}.artifact-list>button em{font-style:normal;color:var(--text-muted)}
 .artifact-overlay{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:rgba(25,48,39,.28);backdrop-filter:blur(4px)}.artifact-dialog{width:min(780px,100%);max-height:min(760px,90vh);overflow:auto;padding:24px;border:1px solid var(--border-subtle);border-radius:18px;background:var(--bg-surface);box-shadow:0 24px 80px rgba(22,48,38,.18)}.artifact-dialog header,.artifact-dialog footer{display:flex;align-items:center;justify-content:space-between;gap:16px}.artifact-dialog header h2{margin:4px 0 0;font-size:22px}.artifact-dialog header>button{width:36px;height:36px;border:1px solid var(--border-subtle);border-radius:50%;background:transparent;color:var(--text-primary);font-size:22px;cursor:pointer}.artifact-dialog pre{min-height:280px;max-height:52vh;overflow:auto;margin:20px 0;padding:18px;border-radius:12px;background:var(--bg-base);color:var(--text-primary);font:13px/1.75 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}.artifact-dialog label{display:grid;gap:7px;margin-top:16px;color:var(--text-secondary);font-size:12px}.artifact-dialog input,.artifact-dialog textarea{width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid var(--border-default);border-radius:9px;background:var(--bg-base);color:var(--text-primary);font:inherit}.artifact-dialog textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;line-height:1.6}.artifact-dialog footer{padding-top:16px;border-top:1px solid var(--border-subtle)}.artifact-dialog footer>span{color:var(--text-muted);font-size:12px}.artifact-dialog footer div{display:flex;gap:8px}.artifact-dialog footer button{padding:8px 12px;border:1px solid var(--accent-border);border-radius:8px;background:transparent;color:var(--accent);cursor:pointer}.artifact-dialog footer .primary{background:var(--accent);color:white}.artifact-dialog button:disabled{opacity:.5}@media(max-width:760px){.artifact-dialog footer{align-items:flex-start;flex-direction:column}.artifact-dialog footer div{width:100%;flex-wrap:wrap}}@media(max-width:480px){.artifact-overlay{padding:8px}.artifact-dialog{padding:16px;border-radius:14px}}
 .result-foot{display:flex;align-items:center;justify-content:space-between;gap:16px}.relevance{display:flex;align-items:center;gap:6px}.relevance>span{color:var(--text-muted);font-size:11px}.relevance button{padding:5px 8px;border:1px solid var(--border-subtle);border-radius:7px;background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer}.relevance button.selected{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}@media(max-width:560px){.result-foot{align-items:flex-start;flex-direction:column}.relevance{flex-wrap:wrap}}
+</style>
+
+<style scoped>
+.page-head h1 {
+  margin: 0 0 8px;
+  font-size: 32px;
+  letter-spacing: -0.025em;
+}
+
+.import-link {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 650;
+}
+
+.library-empty {
+  min-height: 250px;
+  background: linear-gradient(135deg, #ffffff 0%, #f6f9ff 52%, #f2faf5 100%);
+}
+
+.library-empty .empty-icon {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  color: var(--brand-blue-strong);
+  background: var(--brand-blue-soft);
+  border: 1px solid var(--brand-blue-border);
+  border-radius: 14px;
+}
+
+.library-empty .empty-icon .el-icon {
+  font-size: 25px;
+}
+
+.library-empty strong {
+  color: var(--text-primary);
+  font-size: 17px;
+}
+
+.library-empty > span:not(.empty-icon) {
+  max-width: 520px;
+  line-height: 1.7;
+}
+
+.library-empty a {
+  min-height: 42px;
+  margin-top: 8px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #ffffff;
+  background: var(--accent);
+  border-radius: 9px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+@media (max-width: 480px) {
+  .page-head h1 {
+    font-size: 29px;
+  }
+
+  .library-empty {
+    min-height: 290px;
+    padding: 40px 24px;
+  }
+}
+</style>
+
+<style scoped>
+.source-card.expanded {
+  grid-column: 1 / -1;
+}
+
+.lineage-head {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 4px 2px 13px !important;
+}
+
+.lineage-head > div {
+  display: grid !important;
+  gap: 3px !important;
+  padding: 0 !important;
+}
+
+.lineage-head span {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.lineage-head strong {
+  font-size: 15px;
+}
+
+.lineage-head > b {
+  color: #247f75;
+  font-size: 12px;
+}
+
+.lineage-rail {
+  display: grid !important;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0 !important;
+  overflow: hidden;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 13px;
+}
+
+.lineage-rail article {
+  min-width: 0;
+  padding: 13px !important;
+  border-right: 1px solid var(--border-subtle);
+  background: #f8fbfd;
+}
+
+.lineage-rail article:last-child {
+  border-right: 0;
+}
+
+.lineage-rail article.ready {
+  background: #f1faf6;
+}
+
+.lineage-rail article > span {
+  display: block;
+  color: #8ca0ac;
+  font-size: 10px;
+}
+
+.lineage-rail article > strong {
+  display: block;
+  margin: 6px 0;
+  font-size: 12px;
+}
+
+.lineage-rail article > p {
+  margin: 0 0 4px;
+  color: var(--text-primary);
+  font-size: 11px;
+  white-space: normal;
+}
+
+.lineage-rail article > small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.artifact-items {
+  display: grid !important;
+  gap: 3px !important;
+  padding: 0 !important;
+}
+
+.artifact-items > button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
+  gap: 9px;
+  padding: 9px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.artifact-items > button:hover {
+  background: var(--accent-soft);
+}
+
+.artifact-items > button span {
+  color: var(--accent);
+}
+
+.artifact-items > button em {
+  color: var(--text-muted);
+  font-style: normal;
+}
+
+@media (max-width: 980px) {
+  .lineage-rail {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .lineage-rail article:nth-child(3n) {
+    border-right: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .lineage-head {
+    align-items: flex-start !important;
+    flex-direction: column;
+  }
+
+  .lineage-rail {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .lineage-rail article:nth-child(3n) {
+    border-right: 1px solid var(--border-subtle);
+  }
+
+  .lineage-rail article:nth-child(even) {
+    border-right: 0;
+  }
+}
 </style>

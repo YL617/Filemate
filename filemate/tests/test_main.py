@@ -15,7 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import main as main_mod
-from filemate.core.session import SessionStatus
+from filemate.core.session import ProcessingSession, SessionStatus
 
 
 @pytest.fixture(autouse=True)
@@ -49,3 +49,48 @@ def test_parse_failure_does_not_call_llm(tmp_path: Path) -> None:
     assert session.status == SessionStatus.FAILED
     assert session.category == ""
     assert session.confidence == 0.0
+
+
+def test_generate_name_passes_organizer_to_namer(tmp_path: Path) -> None:
+    """竞赛通知没有课程名时，网站流水线应让主办方补位。"""
+    captured: dict = {}
+
+    class _Namer:
+        def generate(self, **kwargs):
+            captured.update(kwargs)
+            return "[iCAN大赛组委会]-[竞赛通知]-[AI-OPC超级个体挑战赛]-[0831]-[待处理]"
+
+    class _Storage:
+        def log_operation(self, *args, **kwargs):
+            return None
+
+    stages = main_mod._make_stages(
+        parser=object(),
+        classifier=object(),
+        extractor=object(),
+        detector=object(),
+        namer=_Namer(),
+        calendar=object(),
+        archiver=object(),
+        storage=_Storage(),
+        llm_client=object(),
+        skip_calendar=True,
+    )
+    generate_name = next(stage for stage in stages if stage.__name__ == "generate_name")
+    session = ProcessingSession(
+        session_id="naming-test",
+        source_path=str(tmp_path / "通知.pdf"),
+        category="竞赛通知",
+        entities={
+            "course_name": None,
+            "task_description": "AI-OPC超级个体挑战赛",
+            "deadline": "2026-08-31",
+            "extra_entities": {"organizer": "iCAN大学生创新创业大赛组织委员会"},
+        },
+    )
+
+    generate_name(session)
+
+    assert captured["course"] == ""
+    assert captured["extra_entities"]["organizer"].startswith("iCAN")
+    assert session.suggested_name.startswith("[iCAN大赛组委会]")

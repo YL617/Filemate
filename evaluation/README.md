@@ -27,6 +27,26 @@ uv run python evaluation/analyze_study.py `
 
 脚本计算标注一致率、Cohen's Kappa、学习正确率增益、节省时间、配对效应量 Cohen's dz 和 SUS。仓库中的 CSV 是合成示例，只用于验证流程；采集真实数据时必须使用匿名参与者编号，并取得知情同意。
 
+## 国奖对照实验采集包
+
+以下空白模板只定义字段，不含任何示例结果：
+
+- `datasets/agent_ab.template.csv`：单 Agent 与按需多 Agent；
+- `datasets/interview_ab.template.csv`：文字与多模态面试；
+- `datasets/companion_ab.template.csv`：普通提醒与学习伙伴反馈。
+
+收集真实匿名数据后，复制并去掉文件名中的 `.template`，再运行：
+
+```powershell
+uv run python evaluation/analyze_competition_trials.py `
+  --agent evaluation/datasets/agent_ab.csv `
+  --interview evaluation/datasets/interview_ab.csv `
+  --companion evaluation/datasets/companion_ab.csv `
+  --output _working/competition-trials-report.json
+```
+
+分析器会在任一条件少于 15 名参与者时输出 `pending_more_samples`。这代表“待评测”，不能当作产品效果结论。
+
 ## 产品内匿名反馈
 
 知识库检索结果支持“相关/不相关”标注，成长页可导出不含原问题、文件名和用户身份的 CSV。统计命令：

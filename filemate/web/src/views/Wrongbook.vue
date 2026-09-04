@@ -1,12 +1,17 @@
 <template>
   <div class="wrongbook-page" aria-live="polite">
     <header>
-      <div><p class="eyebrow">LEARNING LOOP</p><h1>错题复盘</h1><p>答错自动收录，连续答对两次后移入已掌握。</p></div>
+      <div><h1>错题复盘</h1><p>答错自动收录，连续答对两次后移入已掌握。</p></div>
       <button class="filter" @click="showMastered = !showMastered; load()">{{ showMastered ? '查看待复习' : '查看已掌握' }}</button>
     </header>
     <div v-if="loading" class="empty">正在加载…</div>
     <DataState v-else-if="error" :error="error" @retry="load" />
-    <div v-else-if="!items.length" class="empty">{{ showMastered ? '暂无已掌握题目' : '暂无错题，继续保持' }}</div>
+    <div v-else-if="!items.length" class="empty empty-state">
+      <span class="empty-icon"><el-icon><Tickets v-if="showMastered" /><CircleCheckFilled v-else /></el-icon></span>
+      <strong>{{ showMastered ? '暂无已掌握题目' : '暂无错题，继续保持' }}</strong>
+      <p>{{ showMastered ? '完成错题复习并连续答对两次后，题目会出现在这里。' : '从自己的课程资料生成练习，答错的题目会自动进入复习队列。' }}</p>
+      <router-link v-if="!showMastered" to="/ai-tools">从资料生成练习</router-link>
+    </div>
     <article v-for="item in items" :key="item.wrong_id" class="wrong-card">
       <div class="meta"><span>{{ item.question.type }}</span><span>错误 {{ item.error_count }} 次</span><span>复习 {{ item.review_count }} 次</span><span>{{ reviewLabel(item) }}</span></div>
       <h2>{{ item.question.question }}</h2>
@@ -37,6 +42,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { CircleCheckFilled, Tickets } from '@element-plus/icons-vue'
 import { getWrongbook, submitQuizAttempt, type WrongQuestion } from '../services/api'
 import DataState from '../components/DataState.vue'
 
@@ -88,4 +94,71 @@ h1 { margin: 3px 0 8px; font-size: 30px; } header p { margin: 0; color: var(--te
 .empty { padding: 70px; text-align: center; background: var(--bg-surface); border: 1px dashed var(--border-default); border-radius: 14px; color: var(--text-muted); }
 .retry { display: flex; gap: 8px; margin-top: 14px; }.retry input { flex: 1; border: 1px solid var(--border-default); border-radius: 9px; padding: 10px 12px; background: var(--bg-elevated); }.retry button { border: 0; border-radius: 9px; padding: 10px 14px; color: #fff; background: var(--accent); }.retry button:disabled { opacity: .45; }.result { color: var(--accent) !important; font-weight: 600; }
 @media (max-width: 640px) { header { align-items: start; flex-direction: column; }.wrongbook-page { padding: 18px; } }
+</style>
+
+<style scoped>
+header h1 {
+  margin: 0 0 8px;
+  font-size: 30px;
+  letter-spacing: -0.02em;
+}
+
+.empty-state {
+  min-height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 9px;
+  background: linear-gradient(135deg, #ffffff 0%, #f6f9ff 52%, #f2faf5 100%);
+  border: 1px solid var(--border-subtle);
+}
+
+.empty-state .empty-icon {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 14px;
+}
+
+.empty-state .empty-icon .el-icon {
+  font-size: 27px;
+}
+
+.empty-state strong {
+  margin-top: 6px;
+  color: var(--text-primary);
+  font-size: 18px;
+}
+
+.empty-state p {
+  max-width: 520px;
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
+.empty-state a {
+  min-height: 42px;
+  margin-top: 8px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  color: #ffffff;
+  background: var(--accent);
+  border-radius: 9px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+@media (max-width: 640px) {
+  .empty-state {
+    min-height: 300px;
+    padding: 40px 24px;
+  }
+}
 </style>

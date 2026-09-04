@@ -40,7 +40,9 @@ FileMate 是一个面向大学生的本地优先 AI 学习工作台。它把散�
 | 个人知识库 | 资料源、AI 产物、聊天上下文持久化；跨资料词法检索与引用 | `storage.py`、`retrieval.py`、`Knowledge.vue` |
 | 学习闭环 | 练习作答、自动错题本、掌握状态、间隔重复、今日复习队列 | `/quiz`、`/wrongbook`、`/review/today` |
 | 学习计划 | 根据考试日期生成日计划，持久记录每日完成状态，支持 CSV/ICS 导出 | `StudyPlan.vue` |
-| 模拟面试 | 求职、竞赛答辩、保研复试；四维评分；模型不可用时本地降级 | `interview.py`、`Interview.vue` |
+| 模拟面试 | 求职、竞赛答辩、保研复试；摄像头本地预览、语音流畅度与分项评分；模型不可用时本地降级 | `interview.py`、`Interview.vue` |
+| 可信 Agent | 面试与授权任务按需选择角色；记录真实步骤、来源标识与输出摘要；共享记忆可撤销 | `trusted_agents.py`、`TrustCenter.vue` |
+| 版权与隐私 | 资料默认未确认且仅自己可用；授权声明、分享边界与记忆撤销可视化 | `/trust/overview`、`source_rights` |
 | 成长数据 | 资料、练习、错题、计划、面试等本地统计；匿名反馈导出 | `Growth.vue`、`evaluation/` |
 | 多端工程 | Vue Web、FastAPI Sidecar、Tauri 2 桌面工程、CLI | `filemate/web/`、`server.py`、`main.py` |
 
@@ -50,7 +52,7 @@ FileMate 是一个面向大学生的本地优先 AI 学习工作台。它把散�
 |---|---|---|
 | 检索增强问答 | 当前为本地分块 + BM25 风格词法排序 + 页码/片段引用，不是向量 RAG | 增加可替换 Embedding 适配器、对照评测和稳定引用 |
 | 成长画像 | 已有真实行为聚合，不生成虚假数据 | 完善指标解释、时间窗口和空状态 |
-| 模拟面试 | 文字回答和四维评分可用；语音依赖浏览器能力 | 加强题库、证据化反馈和真实导师盲评 |
+| 模拟面试 | 文字回答、语音流畅度和分项评分可用；摄像头仅本地预览，语音依赖浏览器能力 | 加强题库、时间轴回放和真实导师盲评 |
 | Tauri 桌面端 | 工程、Sidecar 脚本和图标已具备 | 暂不把安装包作为 8 月初版阻塞项；9 月末视稳定性验收 |
 | 真实评测 | 已有离线合成基线和匿名评测管线 | 组织真实学生试用，区分工程基线与真实结论 |
 
@@ -96,7 +98,7 @@ FileMate 是一个面向大学生的本地优先 AI 学习工作台。它把散�
 
 - Windows 队友执行 `scripts/dev.ps1 -Setup` 后可启动前后端。
 - 所有高影响文件操作必须先预览确认，不覆盖已有目标，并可撤销。
-- 数据写入 SQLite v12，关闭并重启后仍能读取。
+- 数据写入 SQLite v14，关闭并重启后仍能读取。
 - 非 e2e 后端测试不得少于当前 `370 passed` 基线；新增功能必须新增测试。
 - `npm run build`、CI 静态检查和离线评测通过。
 - P0 缺陷为 0；P1 缺陷必须有负责人、复现步骤和明确截止日期。
@@ -149,7 +151,7 @@ flowchart LR
     A --> E["确认执行器：预览 / 确认 / 回滚 / 撤销"]
     A --> K["学习服务：检索 / 练习 / 错题 / 计划 / 面试"]
     E --> F["本地文件系统 / ICS"]
-    P --> S["SQLite v12"]
+    P --> S["SQLite v14"]
     E --> S
     K --> S
 ```
@@ -200,7 +202,7 @@ Source（原始资料）
 | 本地 API | FastAPI、Uvicorn、Pydantic | 默认监听 `127.0.0.1:8001` |
 | 桌面壳 | Tauri 2、Rust | 工程已建立；安装包仅手动验收 |
 | 核心语言 | Python 3.10+ | 推荐 3.11/3.12；统一 UTF-8 |
-| 数据存储 | SQLite WAL，schema v8 | 本地优先、版本迁移、线程连接管理 |
+| 数据存储 | SQLite WAL，schema v14 | 本地优先、版本迁移、线程连接管理 |
 | 文件解析 | PyPDF2、pdfplumber、python-docx、python-pptx | PaddleOCR 为可选依赖 |
 | 检索 | 本地分块 + BM25 风格词法评分 | 支持页码/片段引用；无外部向量库 |
 | LLM | DeepSeek V4 Flash；OpenAI 兼容 HTTP API | 通过 `LLMClient` 和 Provider 适配层接入 |
@@ -259,7 +261,7 @@ FileMate/
 | `server.py` | HTTP 合同、参数校验、服务编排、统一错误 | 重复实现底层领域算法 |
 | `web` | 用户交互、状态反馈、响应式布局、API 调用 | 直接读取 SQLite 或本地任意路径 |
 
-## 7. SQLite v12 数据模型
+## 7. SQLite v14 数据模型
 
 数据库由 `schema_migrations` 管理，`init_schema()` 必须保持幂等。不要直接修改已经发布的迁移；新增字段或表必须增加新版本迁移和升级测试。
 
@@ -275,6 +277,8 @@ FileMate/
 | v8 | 错题间隔重复字段与索引 | 下次复习时间、间隔、难度因子、复习次数 |
 | v9 | `interview_questions`、`interview_sessions.question_ids` | 可维护面试题库与选题来源追踪 |
 | v12 | 题库兼容修复 | 修复未合并实验迁移曾占用 v9-v11 的本地数据库；v10-v11 不作为正式迁移复用 |
+| v13 | `interview_turns.fluency_metrics` | 持久化语音回答时长、字速、口头语、较长停顿和流畅度参考分 |
+| v14 | `agent_runs`、`agent_steps`、`agent_memories`、`source_rights` | 真实 Agent 轨迹、可撤销摘要记忆、资料授权与分享边界 |
 
 关键关系：
 
@@ -283,6 +287,8 @@ FileMate/
 - `Context` 保存连续问答上下文。
 - `QuizAttempt` 和 `WrongQuestion` 保存学习证据，不能只存在前端内存。
 - `ExecutionRecord` 是文件副作用的审计与撤销依据。
+- `AgentRun` 只记录实际被选择并执行的角色，不把能力目录冒充运行状态。
+- `AgentMemory` 只保存摘要、来源标识和可用角色；不复制面试回答原文。
 
 ## 8. HTTP API 总览
 
@@ -324,6 +330,7 @@ FileMate/
 | GET | `/knowledge/sources` | 列出资料源 |
 | GET | `/knowledge/sources/{id}` | 获取资料正文和元数据 |
 | GET | `/knowledge/sources/{id}/artifacts` | 查询资料派生产物 |
+| PUT | `/knowledge/sources/{id}/rights` | 声明资料权利来源与分享范围 |
 | GET/PATCH | `/knowledge/artifacts/{id}` | 查看或修改学习产物 |
 | GET | `/knowledge/search?q=...` | 跨资料本地检索 |
 
@@ -346,6 +353,8 @@ FileMate/
 | POST | `/evaluation/feedback` | 保存匿名产品反馈 |
 | GET | `/evaluation/feedback/summary` | 获取反馈摘要 |
 | GET | `/evaluation/feedback/export.csv` | 导出匿名反馈 |
+| GET | `/trust/overview` | 获取真实 Agent 轨迹、共享记忆和资料授权状态 |
+| DELETE | `/agents/memories/{id}` | 撤销共享记忆的后续使用权限 |
 
 完整字段和边界见 [`filemate/docs/API_SPEC.md`](filemate/docs/API_SPEC.md)，交互调试访问 `http://127.0.0.1:8001/docs`。
 
@@ -363,10 +372,11 @@ FileMate/
 | `/ai-tools` | AI 工具箱 | 摘要、卡片、题目、笔记、问答 |
 | `/study-plan` | AI 学习计划 | 生成、查看和完成每日任务 |
 | `/wrongbook` | 错题复盘 | 错题、掌握状态和复习安排 |
-| `/interview` | 模拟面试 | 场景、回答、四维评分与反馈 |
+| `/interview` | 模拟面试 | 场景、摄像头本地预览、语音流畅度、分项评分与反馈 |
 | `/interview-bank` | 题库管理 | 筛选、新增、编辑、启停和删除面试题目 |
 | `/growth` | 成长数据 | 真实行为统计与匿名反馈导出 |
 | `/knowledge` | 个人知识库 | 资料、产物、跨资料检索和编辑 |
+| `/trust` | 可信与隐私 | Agent 时间线、共享记忆撤销、资料授权与分享边界 |
 
 视觉必须遵循“日光学习台”：浅色、低饱和自然绿、真实数据优先；不使用暗色主界面、紫粉 AI 渐变、Emoji 功能图标、虚构准确率或无意义机器人视觉。
 

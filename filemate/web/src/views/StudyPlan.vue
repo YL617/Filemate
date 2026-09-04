@@ -72,7 +72,7 @@
     <section v-if="plan" class="plan-results">
       <div class="plan-summary">
         <div class="summary-copy">
-          <span class="eyebrow">YOUR STUDY ROUTE</span>
+          <span class="eyebrow">你的学习路径</span>
           <h2>{{ plan.title }}</h2>
           <p>{{ plan.strategy }}</p>
         </div>

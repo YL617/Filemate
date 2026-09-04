@@ -326,6 +326,75 @@ CREATE INDEX IF NOT EXISTS idx_interview_questions_filter
     ON interview_questions(scenario, difficulty, enabled);
 """
 
+_INTERVIEW_FLUENCY_SCHEMA = """\
+ALTER TABLE interview_turns
+    ADD COLUMN fluency_metrics TEXT NOT NULL DEFAULT '{}';
+"""
+
+_TRUSTED_AGENT_SCHEMA = """\
+CREATE TABLE IF NOT EXISTS agent_runs (
+    run_id          TEXT PRIMARY KEY,
+    task_type       TEXT NOT NULL,
+    goal            TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'running'
+                    CHECK(status IN ('running','completed','failed')),
+    selected_agents TEXT NOT NULL DEFAULT '[]',
+    context_refs    TEXT NOT NULL DEFAULT '{}',
+    created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now')),
+    updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
+);
+
+CREATE TABLE IF NOT EXISTS agent_steps (
+    step_id        TEXT PRIMARY KEY,
+    run_id         TEXT NOT NULL REFERENCES agent_runs(run_id) ON DELETE CASCADE,
+    sequence       INTEGER NOT NULL,
+    agent_name     TEXT NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'completed'
+                   CHECK(status IN ('completed','failed','blocked')),
+    input_refs     TEXT NOT NULL DEFAULT '{}',
+    output_summary TEXT NOT NULL DEFAULT '',
+    created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now')),
+    UNIQUE(run_id, sequence)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_runs_recent
+    ON agent_runs(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_steps_run
+    ON agent_steps(run_id, sequence);
+
+CREATE TABLE IF NOT EXISTS agent_memories (
+    memory_id      TEXT PRIMARY KEY,
+    memory_type    TEXT NOT NULL
+                   CHECK(memory_type IN ('session','knowledge','growth','operation')),
+    scope_id       TEXT NOT NULL,
+    source_type    TEXT NOT NULL,
+    source_id      TEXT NOT NULL,
+    summary        TEXT NOT NULL,
+    allowed_agents TEXT NOT NULL DEFAULT '[]',
+    expires_at     TEXT,
+    deleted_at     TEXT,
+    created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now')),
+    updated_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_memories_scope
+    ON agent_memories(scope_id, memory_type, deleted_at);
+
+CREATE TABLE IF NOT EXISTS source_rights (
+    source_id      TEXT PRIMARY KEY REFERENCES sources(source_id) ON DELETE CASCADE,
+    rights_status  TEXT NOT NULL DEFAULT 'unconfirmed'
+                   CHECK(rights_status IN ('unconfirmed','self_owned','authorized','public')),
+    sharing_scope  TEXT NOT NULL DEFAULT 'private'
+                   CHECK(sharing_scope IN ('private','restricted','shareable')),
+    note           TEXT NOT NULL DEFAULT '',
+    confirmed_at   TEXT,
+    updated_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
+);
+
+ALTER TABLE interview_sessions
+    ADD COLUMN agent_run_id TEXT REFERENCES agent_runs(run_id);
+"""
+
 _MIGRATIONS = (
     (1, "initial_execution_schema", _SCHEMA),
     (2, "knowledge_persistence", _KNOWLEDGE_SCHEMA),
@@ -337,6 +406,8 @@ _MIGRATIONS = (
     (8, "spaced_repetition", _SPACED_REPETITION_SCHEMA),
     (9, "interview_question_bank", _INTERVIEW_BANK_SCHEMA),
     (12, "interview_question_bank_compatibility", _INTERVIEW_BANK_REPAIR_SCHEMA),
+    (13, "interview_fluency_metrics", _INTERVIEW_FLUENCY_SCHEMA),
+    (14, "trusted_agent_memory_and_rights", _TRUSTED_AGENT_SCHEMA),
 )
 
 
@@ -816,6 +887,166 @@ class SQLiteStorage:
             (source_id,),
         ).fetchone()
         return self._decode_row(row, ("metadata",))
+
+    def get_source_lineage(self, source_id: str) -> dict[str, Any] | None:
+        """汇总一份资料已形成的学习资产链，不复制用户原文。"""
+        source = self.get_source(source_id)
+        if source is None:
+            return None
+        connection = self._conn()
+        artifacts = self.list_artifacts(source_id=source_id, limit=200)
+        artifact_counts: dict[str, int] = {}
+        for artifact in artifacts:
+            artifact_type = str(artifact["artifact_type"])
+            artifact_counts[artifact_type] = artifact_counts.get(artifact_type, 0) + 1
+
+        chunk_count = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM document_chunks WHERE source_id=?",
+                (source_id,),
+            ).fetchone()[0]
+        )
+        attempt_row = connection.execute(
+            """SELECT COUNT(*) AS total, COALESCE(SUM(is_correct), 0) AS correct
+               FROM quiz_attempts WHERE source_id=?""",
+            (source_id,),
+        ).fetchone()
+        wrong_row = connection.execute(
+            """SELECT COUNT(*) AS total,
+                      COALESCE(SUM(CASE WHEN mastered=0 THEN 1 ELSE 0 END), 0) AS pending,
+                      COALESCE(SUM(CASE WHEN mastered=1 THEN 1 ELSE 0 END), 0) AS mastered
+               FROM wrong_questions WHERE source_id=?""",
+            (source_id,),
+        ).fetchone()
+        plan_rows = connection.execute(
+            "SELECT plan_data, completed_days FROM study_plans WHERE source_id=?",
+            (source_id,),
+        ).fetchall()
+        total_plan_days = 0
+        completed_plan_days = 0
+        for row in plan_rows:
+            try:
+                total_plan_days += len(
+                    json.loads(row["plan_data"]).get("daily_plan", [])
+                )
+                completed_plan_days += len(json.loads(row["completed_days"]))
+            except (TypeError, json.JSONDecodeError):
+                continue
+
+        linked_run_ids = []
+        run_rows = connection.execute(
+            "SELECT run_id, context_refs FROM agent_runs "
+            "WHERE task_type='interview_session'"
+        ).fetchall()
+        for row in run_rows:
+            try:
+                refs = json.loads(row["context_refs"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if refs.get("source_id") == source_id:
+                linked_run_ids.append(str(row["run_id"]))
+        interview_count = 0
+        interview_turn_count = 0
+        interview_average: float | None = None
+        if linked_run_ids:
+            placeholders = ",".join("?" for _ in linked_run_ids)
+            interview_row = connection.execute(
+                f"""SELECT COUNT(*) AS sessions,
+                           AVG(CASE WHEN current_index > 0
+                               THEN overall_score END) AS average
+                    FROM interview_sessions
+                    WHERE agent_run_id IN ({placeholders})""",
+                linked_run_ids,
+            ).fetchone()
+            turn_row = connection.execute(
+                f"""SELECT COUNT(*) AS turns FROM interview_turns
+                    WHERE interview_id IN (
+                        SELECT interview_id FROM interview_sessions
+                        WHERE agent_run_id IN ({placeholders})
+                    )""",
+                linked_run_ids,
+            ).fetchone()
+            interview_count = int(interview_row["sessions"] or 0)
+            interview_turn_count = int(turn_row["turns"] or 0)
+            if interview_row["average"] is not None:
+                interview_average = round(float(interview_row["average"]), 2)
+
+        attempt_count = int(attempt_row["total"] or 0)
+        correct_count = int(attempt_row["correct"] or 0)
+        wrong_total = int(wrong_row["total"] or 0)
+        stages = [
+            {
+                "key": "source",
+                "label": "原始资料",
+                "state": "ready",
+                "primary": "1 份已入库资料",
+                "secondary": f"{chunk_count} 个可引用片段",
+            },
+            {
+                "key": "understanding",
+                "label": "理解产物",
+                "state": "ready" if artifacts else "empty",
+                "primary": f"{len(artifacts)} 个学习产物",
+                "secondary": " · ".join(
+                    f"{name} {count}"
+                    for name, count in sorted(artifact_counts.items())
+                ) or "尚未生成摘要或知识卡",
+            },
+            {
+                "key": "practice",
+                "label": "练习证据",
+                "state": "ready" if attempt_count else "empty",
+                "primary": f"{attempt_count} 次真实作答",
+                "secondary": (
+                    f"其中答对 {correct_count} 次"
+                    if attempt_count
+                    else "尚未开始练习"
+                ),
+            },
+            {
+                "key": "review",
+                "label": "错题复习",
+                "state": "ready" if wrong_total else "empty",
+                "primary": f"{wrong_total} 道错题进入闭环",
+                "secondary": (
+                    f"待复习 {int(wrong_row['pending'] or 0)} · "
+                    f"已掌握 {int(wrong_row['mastered'] or 0)}"
+                ),
+            },
+            {
+                "key": "plan",
+                "label": "行动计划",
+                "state": "ready" if plan_rows else "empty",
+                "primary": f"{len(plan_rows)} 份学习计划",
+                "secondary": (
+                    f"已完成 {completed_plan_days}/{total_plan_days} 个学习日"
+                    if plan_rows
+                    else "尚未生成学习计划"
+                ),
+            },
+            {
+                "key": "interview",
+                "label": "表达验证",
+                "state": "ready" if interview_count else "empty",
+                "primary": f"{interview_count} 场资料关联面试",
+                "secondary": (
+                    f"{interview_turn_count} 次回答 · 均分 {interview_average:.0f}"
+                    if interview_average is not None
+                    else "尚无资料关联面试"
+                ),
+            },
+        ]
+        return {
+            "source_id": source_id,
+            "source_name": source["original_name"],
+            "rights": self.get_source_rights(source_id),
+            "artifact_counts": artifact_counts,
+            "stages": stages,
+            "completed_stage_count": sum(
+                item["state"] == "ready" for item in stages
+            ),
+            "total_stage_count": len(stages),
+        }
 
     def list_sources(
         self,
@@ -1324,6 +1555,7 @@ class SQLiteStorage:
         difficulty: str,
         questions: list[str],
         question_ids: list[str | None] | None = None,
+        agent_run_id: str | None = None,
     ) -> dict[str, Any]:
         """创建模拟面试。"""
         if question_ids is not None and len(question_ids) != len(questions):
@@ -1333,8 +1565,8 @@ class SQLiteStorage:
             self._conn().execute(
                 """INSERT INTO interview_sessions
                    (interview_id, target_role, scenario, difficulty, questions,
-                    question_ids)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                    question_ids, agent_run_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     interview_id,
                     target_role,
@@ -1342,6 +1574,7 @@ class SQLiteStorage:
                     difficulty,
                     self._dump_json(questions),
                     self._dump_json(question_ids or [None] * len(questions)),
+                    agent_run_id,
                 ),
             )
             self._conn().commit()
@@ -1365,7 +1598,10 @@ class SQLiteStorage:
             "SELECT * FROM interview_turns WHERE interview_id=? ORDER BY question_index",
             (interview_id,),
         ).fetchall()
-        interview["turns"] = [self._decode_row(turn, ("dimensions",)) for turn in turns]
+        interview["turns"] = [
+            self._decode_row(turn, ("dimensions", "fluency_metrics"))
+            for turn in turns
+        ]
         return interview
 
     def save_interview_turn(
@@ -1378,6 +1614,7 @@ class SQLiteStorage:
         score: float,
         dimensions: dict[str, float],
         feedback: str,
+        fluency_metrics: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """保存单轮面试评分并推进进度。"""
         interview = self.get_interview(interview_id)
@@ -1392,11 +1629,12 @@ class SQLiteStorage:
             connection.execute(
                 """INSERT INTO interview_turns
                    (turn_id, interview_id, question_index, question, answer,
-                    score, dimensions, feedback)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    score, dimensions, feedback, fluency_metrics)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     turn_id, interview_id, question_index, question, answer,
                     score, self._dump_json(dimensions), feedback,
+                    self._dump_json(fluency_metrics or {}),
                 ),
             )
             connection.execute(
@@ -1790,6 +2028,306 @@ class SQLiteStorage:
             "positive_rate": round(positive / total * 100, 2) if total else 0.0,
             "by_area": by_area,
         }
+
+    # ------------------------------------------------------------------
+    # 可信 Agent / 共享记忆 / 资料授权
+    # ------------------------------------------------------------------
+
+    def create_agent_run(
+        self,
+        *,
+        task_type: str,
+        goal: str,
+        selected_agents: list[str],
+        context_refs: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """创建一条可审计的 Agent 协作运行记录。"""
+        if not task_type.strip() or not goal.strip():
+            raise ValueError("Agent 任务类型和目标不能为空")
+        run_id = uuid.uuid4().hex
+        with self._write_lock:
+            self._conn().execute(
+                """INSERT INTO agent_runs
+                   (run_id, task_type, goal, selected_agents, context_refs)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (
+                    run_id,
+                    task_type.strip(),
+                    goal.strip(),
+                    self._dump_json(selected_agents),
+                    self._dump_json(context_refs or {}),
+                ),
+            )
+            self._conn().commit()
+        result = self.get_agent_run(run_id)
+        if result is None:
+            raise RuntimeError("Agent 运行记录创建失败")
+        return result
+
+    def get_agent_run(self, run_id: str) -> dict[str, Any] | None:
+        """读取一条 Agent 运行及其真实步骤。"""
+        row = self._conn().execute(
+            "SELECT * FROM agent_runs WHERE run_id=?",
+            (run_id,),
+        ).fetchone()
+        result = self._decode_row(row, ("selected_agents", "context_refs"))
+        if result is None:
+            return None
+        steps = self._conn().execute(
+            "SELECT * FROM agent_steps WHERE run_id=? ORDER BY sequence",
+            (run_id,),
+        ).fetchall()
+        result["steps"] = [
+            self._decode_row(step, ("input_refs",)) for step in steps
+        ]
+        return result
+
+    def list_agent_runs(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        """按更新时间列出最近的 Agent 协作运行。"""
+        rows = self._conn().execute(
+            "SELECT run_id FROM agent_runs ORDER BY updated_at DESC, rowid DESC LIMIT ?",
+            (max(1, min(limit, 200)),),
+        ).fetchall()
+        return [
+            run
+            for row in rows
+            if (run := self.get_agent_run(str(row["run_id"]))) is not None
+        ]
+
+    def append_agent_step(
+        self,
+        *,
+        run_id: str,
+        agent_name: str,
+        input_refs: dict[str, Any] | None = None,
+        output_summary: str,
+        status: str = "completed",
+    ) -> dict[str, Any]:
+        """追加真实执行步骤，不保存输入原文。"""
+        if status not in {"completed", "failed", "blocked"}:
+            raise ValueError("无效的 Agent 步骤状态")
+        if self.get_agent_run(run_id) is None:
+            raise ValueError("Agent 运行不存在")
+        if not agent_name.strip() or not output_summary.strip():
+            raise ValueError("Agent 名称和输出摘要不能为空")
+        step_id = uuid.uuid4().hex
+        now = _now_iso()
+        with self._write_lock:
+            connection = self._conn()
+            row = connection.execute(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM agent_steps WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+            sequence = int(row[0])
+            connection.execute(
+                """INSERT INTO agent_steps
+                   (step_id, run_id, sequence, agent_name, status,
+                    input_refs, output_summary)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    step_id,
+                    run_id,
+                    sequence,
+                    agent_name.strip(),
+                    status,
+                    self._dump_json(input_refs or {}),
+                    output_summary.strip(),
+                ),
+            )
+            connection.execute(
+                "UPDATE agent_runs SET updated_at=? WHERE run_id=?",
+                (now, run_id),
+            )
+            connection.commit()
+        row = self._conn().execute(
+            "SELECT * FROM agent_steps WHERE step_id=?",
+            (step_id,),
+        ).fetchone()
+        result = self._decode_row(row, ("input_refs",))
+        if result is None:
+            raise RuntimeError("Agent 步骤保存失败")
+        return result
+
+    def finish_agent_run(self, run_id: str, status: str = "completed") -> bool:
+        """结束一条 Agent 运行。"""
+        if status not in {"completed", "failed"}:
+            raise ValueError("无效的 Agent 运行状态")
+        with self._write_lock:
+            connection = self._conn()
+            cursor = connection.execute(
+                "UPDATE agent_runs SET status=?, updated_at=? WHERE run_id=?",
+                (status, _now_iso(), run_id),
+            )
+            connection.commit()
+        return cursor.rowcount > 0
+
+    def save_agent_memory(
+        self,
+        *,
+        memory_type: str,
+        scope_id: str,
+        source_type: str,
+        source_id: str,
+        summary: str,
+        allowed_agents: list[str],
+        expires_at: str | None = None,
+    ) -> dict[str, Any]:
+        """保存带来源和使用范围的摘要记忆。"""
+        if memory_type not in {"session", "knowledge", "growth", "operation"}:
+            raise ValueError("无效的共享记忆类型")
+        if not all(
+            value.strip() for value in (scope_id, source_type, source_id, summary)
+        ):
+            raise ValueError("共享记忆字段不能为空")
+        memory_id = uuid.uuid4().hex
+        with self._write_lock:
+            self._conn().execute(
+                """INSERT INTO agent_memories
+                   (memory_id, memory_type, scope_id, source_type, source_id,
+                    summary, allowed_agents, expires_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    memory_id,
+                    memory_type,
+                    scope_id.strip(),
+                    source_type.strip(),
+                    source_id.strip(),
+                    summary.strip(),
+                    self._dump_json(allowed_agents),
+                    expires_at,
+                ),
+            )
+            self._conn().commit()
+        row = self._conn().execute(
+            "SELECT * FROM agent_memories WHERE memory_id=?",
+            (memory_id,),
+        ).fetchone()
+        result = self._decode_row(row, ("allowed_agents",))
+        if result is None:
+            raise RuntimeError("共享记忆保存失败")
+        return result
+
+    def list_agent_memories(
+        self,
+        *,
+        memory_type: str | None = None,
+        include_deleted: bool = False,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """列出共享记忆元数据，默认隐藏已删除记录。"""
+        clauses: list[str] = []
+        params: list[Any] = []
+        if memory_type is not None:
+            if memory_type not in {"session", "knowledge", "growth", "operation"}:
+                raise ValueError("无效的共享记忆类型")
+            clauses.append("memory_type=?")
+            params.append(memory_type)
+        if not include_deleted:
+            clauses.append("deleted_at IS NULL")
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        params.append(max(1, min(limit, 500)))
+        rows = self._conn().execute(
+            f"SELECT * FROM agent_memories{where} "
+            "ORDER BY updated_at DESC, rowid DESC LIMIT ?",
+            params,
+        ).fetchall()
+        return [self._decode_row(row, ("allowed_agents",)) for row in rows]
+
+    def soft_delete_agent_memory(self, memory_id: str) -> bool:
+        """软删除共享记忆，使后续 Agent 不再使用。"""
+        now = _now_iso()
+        with self._write_lock:
+            connection = self._conn()
+            cursor = connection.execute(
+                """UPDATE agent_memories SET deleted_at=?, updated_at=?
+                   WHERE memory_id=? AND deleted_at IS NULL""",
+                (now, now, memory_id),
+            )
+            connection.commit()
+        return cursor.rowcount > 0
+
+    def set_source_rights(
+        self,
+        *,
+        source_id: str,
+        rights_status: str,
+        sharing_scope: str = "private",
+        note: str = "",
+    ) -> dict[str, Any]:
+        """保存资料授权与分享范围声明。"""
+        if self.get_source(source_id) is None:
+            raise ValueError("资料源不存在")
+        if rights_status not in {
+            "unconfirmed", "self_owned", "authorized", "public"
+        }:
+            raise ValueError("无效的资料授权状态")
+        if sharing_scope not in {"private", "restricted", "shareable"}:
+            raise ValueError("无效的分享范围")
+        if rights_status == "unconfirmed" and sharing_scope != "private":
+            raise ValueError("授权未确认的资料只能保持私有")
+        now = _now_iso()
+        confirmed_at = None if rights_status == "unconfirmed" else now
+        with self._write_lock:
+            self._conn().execute(
+                """INSERT INTO source_rights
+                   (source_id, rights_status, sharing_scope, note,
+                    confirmed_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(source_id) DO UPDATE SET
+                       rights_status=excluded.rights_status,
+                       sharing_scope=excluded.sharing_scope,
+                       note=excluded.note,
+                       confirmed_at=excluded.confirmed_at,
+                       updated_at=excluded.updated_at""",
+                (
+                    source_id,
+                    rights_status,
+                    sharing_scope,
+                    note.strip()[:500],
+                    confirmed_at,
+                    now,
+                ),
+            )
+            self._conn().commit()
+        result = self.get_source_rights(source_id)
+        if result is None:
+            raise RuntimeError("资料授权声明保存失败")
+        return result
+
+    def get_source_rights(self, source_id: str) -> dict[str, Any] | None:
+        """读取资料授权；未声明时返回私有默认值。"""
+        source = self.get_source(source_id)
+        if source is None:
+            return None
+        row = self._conn().execute(
+            "SELECT * FROM source_rights WHERE source_id=?",
+            (source_id,),
+        ).fetchone()
+        if row is not None:
+            return dict(row)
+        return {
+            "source_id": source_id,
+            "rights_status": "unconfirmed",
+            "sharing_scope": "private",
+            "note": "",
+            "confirmed_at": None,
+            "updated_at": source["updated_at"],
+        }
+
+    def list_source_rights(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        """列出资料名称及其授权状态，不返回资料正文。"""
+        rows = self._conn().execute(
+            """SELECT s.source_id, s.original_name, s.media_type, s.created_at,
+                      COALESCE(r.rights_status, 'unconfirmed') AS rights_status,
+                      COALESCE(r.sharing_scope, 'private') AS sharing_scope,
+                      COALESCE(r.note, '') AS note,
+                      r.confirmed_at,
+                      COALESCE(r.updated_at, s.updated_at) AS updated_at
+               FROM sources s LEFT JOIN source_rights r ON r.source_id=s.source_id
+               ORDER BY s.updated_at DESC, s.rowid DESC LIMIT ?""",
+            (max(1, min(limit, 500)),),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def get_learning_analytics(self) -> dict[str, Any]:
         """汇总学习资产、错题与模拟面试指标。"""

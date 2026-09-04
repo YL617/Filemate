@@ -1,24 +1,44 @@
 <template>
   <div class="dashboard">
     <section class="dashboard-intro" aria-labelledby="dashboard-title">
-      <div>
-        <h2 id="dashboard-title">{{ hasHistory ? '继续推进你的学习闭环' : '从第一份学习资料开始' }}</h2>
-        <p>
-          {{ hasHistory
-            ? 'FileMate 已把资料处理、确认和学习产物串在一起。先完成最接近截止线的一步。'
-            : '导入课件、作业或考试通知，系统会先给出可确认的分类与日程，再生成学习产物。' }}
-        </p>
-        <time class="today-context">{{ todayLabel }} · 本地学习空间</time>
+      <div class="intro-main">
+        <div class="intro-copy">
+          <h2 id="dashboard-title">{{ hasHistory ? '继续推进你的学习闭环' : '从第一份学习资料开始' }}</h2>
+          <p>
+            {{ hasHistory
+              ? 'FileMate 已把资料处理、确认和学习产物串在一起。先完成最接近截止线的一步。'
+              : '导入课件、作业或考试通知，系统会先给出可确认的分类与日程，再生成学习产物。' }}
+          </p>
+          <time class="today-context">{{ todayLabel }} · 本地学习空间</time>
+        </div>
+        <div class="intro-actions">
+          <el-button type="primary" size="large" @click="router.push('/import')">
+            <el-icon><Upload /></el-icon>
+            导入学习资料
+          </el-button>
+          <el-button size="large" @click="router.push('/ai-tools')">
+            <el-icon><MagicStick /></el-icon>
+            打开资料理解
+          </el-button>
+        </div>
       </div>
-      <div class="intro-actions">
-        <el-button type="primary" size="large" @click="router.push('/import')">
-          <el-icon><Upload /></el-icon>
-          导入学习资料
-        </el-button>
-        <el-button size="large" @click="router.push('/ai-tools')">
-          <el-icon><MagicStick /></el-icon>
-          打开资料理解
-        </el-button>
+      <div class="intro-visual" aria-label="FileMate 品牌形象">
+        <div class="mascot-stage">
+          <img
+            class="mascot-image"
+            src="../assets/filemate-mascot.png"
+            alt="FileMate 文件知识管理伙伴"
+            width="1086"
+            height="1448"
+          />
+        </div>
+        <div class="mascot-caption">
+          <span class="caption-indicator" aria-hidden="true" />
+          <div>
+            <strong>FileMate 学习伙伴</strong>
+            <span>资料有序，学习有迹</span>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -307,12 +327,51 @@ onMounted(loadDashboard)
 }
 
 .dashboard-intro {
-  padding: 4px 0 28px;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 32px;
-  border-bottom: 1px solid var(--border-subtle);
+  position: relative;
+  min-height: 304px;
+  padding: 30px 32px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(270px, 360px);
+  align-items: center;
+  gap: 28px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #f9fbff 0%, #edf5ff 48%, #edf8f1 100%);
+  border: 1px solid #d3e2e7;
+  border-radius: 16px;
+}
+
+.dashboard-intro::before,
+.dashboard-intro::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  border-radius: 50%;
+}
+
+.dashboard-intro::before {
+  width: 370px;
+  height: 370px;
+  top: -190px;
+  right: -40px;
+  background: rgba(37, 99, 235, 0.10);
+}
+
+.dashboard-intro::after {
+  width: 290px;
+  height: 290px;
+  right: 210px;
+  bottom: -230px;
+  background: rgba(47, 125, 85, 0.12);
+}
+
+.intro-main,
+.intro-visual {
+  position: relative;
+  z-index: 1;
+}
+
+.intro-main {
+  min-width: 0;
 }
 
 .today-context {
@@ -328,10 +387,10 @@ onMounted(loadDashboard)
   margin: 0;
   font-size: clamp(27px, 3vw, 40px);
   line-height: 1.2;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.03em;
 }
 
-.dashboard-intro > div > p {
+.intro-copy > p {
   max-width: 720px;
   margin: 12px 0 0;
   color: var(--text-secondary);
@@ -340,9 +399,113 @@ onMounted(loadDashboard)
 }
 
 .intro-actions {
-  flex: 0 0 auto;
+  margin-top: 24px;
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
+}
+
+.intro-actions .el-button {
+  min-width: 154px;
+}
+
+.intro-visual {
+  align-self: stretch;
+  min-height: 242px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: mascot-arrive 720ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.mascot-stage {
+  position: absolute;
+  inset: -26px 14px -84px 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.mascot-stage::before {
+  content: '';
+  position: absolute;
+  width: 248px;
+  height: 248px;
+  top: 42px;
+  left: 50%;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(184, 210, 255, 0.82);
+  border-radius: 50%;
+  transform: translateX(-50%);
+}
+
+.mascot-image {
+  position: relative;
+  width: auto;
+  height: 350px;
+  max-width: none;
+  display: block;
+  filter: drop-shadow(0 18px 22px rgba(28, 67, 118, 0.16));
+  animation: mascot-breathe 5.5s ease-in-out 800ms infinite;
+}
+
+.mascot-caption {
+  position: relative;
+  width: min(260px, 88%);
+  min-height: 54px;
+  margin-bottom: 2px;
+  padding: 10px 14px;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(184, 210, 255, 0.88);
+  border-radius: 12px;
+  box-shadow: 0 10px 24px rgba(25, 68, 113, 0.10);
+}
+
+.caption-indicator {
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  border-radius: 50%;
+}
+
+.mascot-caption div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mascot-caption strong {
+  font-size: 12px;
+}
+
+.mascot-caption span:not(.caption-indicator) {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+@keyframes mascot-arrive {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+    clip-path: inset(10% 0 0 24% round 24px);
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    clip-path: inset(0 0 0 0 round 0);
+    transform: translateY(0);
+  }
+}
+
+@keyframes mascot-breathe {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
 }
 
 .state-panel {
@@ -393,8 +556,8 @@ onMounted(loadDashboard)
   display: grid;
   grid-template-columns: repeat(4, minmax(100px, 1fr)) auto;
   align-items: center;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
+  background: linear-gradient(90deg, #ffffff 0%, #f7fbff 52%, #f4fbf7 100%);
+  border: 1px solid #d4e2e1;
   border-radius: var(--radius-panel);
 }
 
@@ -425,6 +588,15 @@ onMounted(loadDashboard)
   font-weight: 700;
 }
 
+.metric-strip > div:nth-child(1) strong {
+  color: var(--brand-blue-strong);
+}
+
+.metric-strip > div:nth-child(2) strong,
+.metric-strip > div:nth-child(4) strong {
+  color: var(--accent);
+}
+
 .metric-strip strong.warning {
   color: var(--warning);
 }
@@ -453,6 +625,24 @@ onMounted(loadDashboard)
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-panel);
+  transition: background-color var(--motion-fast), border-color var(--motion-fast);
+}
+
+.panel:hover {
+  border-color: var(--border-strong);
+}
+
+.next-panel {
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdfc 100%);
+}
+
+.loop-panel {
+  background: linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%);
+  border-color: #d6e2f2;
+}
+
+.profile-panel {
+  background: linear-gradient(180deg, #ffffff 0%, #f6fbf8 100%);
 }
 
 .panel-heading {
@@ -495,10 +685,15 @@ onMounted(loadDashboard)
   align-items: center;
   gap: 14px;
   border-top: 1px solid var(--border-subtle);
+  transition: background-color var(--motion-fast);
 }
 
 .action-list li:first-child {
   border-top: 0;
+}
+
+.action-list li:hover {
+  background: rgba(234, 242, 255, 0.52);
 }
 
 .action-index {
@@ -750,8 +945,7 @@ onMounted(loadDashboard)
 
 @media (max-width: 1120px) {
   .dashboard-intro {
-    align-items: flex-start;
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr) 280px;
   }
 
   .metric-strip {
@@ -776,7 +970,26 @@ onMounted(loadDashboard)
   }
 }
 
+@media (max-width: 860px) {
+  .dashboard-intro {
+    grid-template-columns: 1fr;
+    padding-bottom: 0;
+  }
+
+  .intro-visual {
+    min-height: 250px;
+  }
+
+  .mascot-stage {
+    inset: -22px 0 -102px;
+  }
+}
+
 @media (max-width: 700px) {
+  .dashboard-intro {
+    padding: 24px 20px 0;
+  }
+
   .intro-actions {
     width: 100%;
     flex-direction: column;
@@ -785,6 +998,14 @@ onMounted(loadDashboard)
   .intro-actions .el-button {
     width: 100%;
     margin: 0;
+  }
+
+  .intro-visual {
+    min-height: 226px;
+  }
+
+  .mascot-image {
+    height: 306px;
   }
 
   .metric-strip {

@@ -463,7 +463,7 @@ class GenerateNameAgent(Agent):
 
         llm = get_registry().get_llm()
         namer = Namer(llm)
-        course = session.entities.get("course_name") or "未分类"
+        course = session.entities.get("course_name") or ""
         task = session.entities.get("task_description") or "未命名"
         deadline = session.entities.get("deadline") or ""
 
@@ -473,6 +473,7 @@ class GenerateNameAgent(Agent):
             task=task,
             deadline=deadline,
             status="待处理",
+            extra_entities=session.entities.get("extra_entities"),
         )
         session.suggested_name = suggested
         return suggested

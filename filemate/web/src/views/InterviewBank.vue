@@ -2,7 +2,6 @@
   <div class="interview-bank-page">
     <header class="page-head">
       <div>
-        <p class="eyebrow">INTERVIEW QUESTION BANK</p>
         <h1>面试题库管理</h1>
         <p>按场景和难度维护模拟面试题目，题目会参与面试创建时的自动选题。</p>
       </div>
@@ -254,16 +253,9 @@ onMounted(load)
   align-items: end;
   margin-bottom: 24px;
 }
-.eyebrow {
-  margin: 0;
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.15em;
-}
 .page-head h1 {
   font-size: 32px;
-  margin: 6px 0;
+  margin: 0 0 7px;
 }
 .page-head p {
   margin: 0;

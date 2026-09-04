@@ -59,7 +59,7 @@
           <span>今日处理</span>
           <strong>{{ todayCount }}</strong>
         </div>
-        <span class="version-label">v1.2</span>
+        <span class="version-label">v1.3 α</span>
       </div>
     </aside>
 
@@ -116,7 +116,9 @@
           >
             <el-icon><Setting /></el-icon>
           </button>
-          <div class="avatar" aria-label="FileMate 本地用户">FM</div>
+          <div class="avatar" aria-label="FileMate 学习伙伴">
+            <img src="./assets/filemate-mascot.png" alt="" aria-hidden="true" />
+          </div>
         </div>
       </header>
 
@@ -135,7 +137,7 @@
           <el-icon><Monitor /></el-icon>
           <div>
             <strong>显示模式</strong>
-            <span>当前使用自然绿浅色工作台</span>
+            <span>当前使用蓝绿浅色工作台</span>
           </div>
           <el-tag effect="plain">浅色</el-tag>
         </div>
@@ -192,7 +194,8 @@ import {
   Tickets,
   Microphone,
   DataAnalysis,
-  FolderOpened
+  FolderOpened,
+  Aim
 } from '@element-plus/icons-vue'
 import Logo from './components/Logo.vue'
 import { checkHealth, getHistory } from './services/api'
@@ -223,7 +226,8 @@ const menuGroups = [
       { path: '/classification', title: '分类确认', icon: Collection },
       { path: '/naming', title: '命名确认', icon: Edit },
       { path: '/schedule', title: '学习日程', icon: Calendar },
-      { path: '/history', title: '处理记录', icon: Clock }
+      { path: '/history', title: '处理记录', icon: Clock },
+      { path: '/trust', title: '可信与隐私', icon: Lock, badge: '新' }
     ]
   },
   {
@@ -231,8 +235,9 @@ const menuGroups = [
     items: [
       { path: '/ai-tools', title: '资料理解', icon: MagicStick, badge: '可用' },
       { path: '/study-plan', title: '学习计划', icon: Reading },
+      { path: '/goals', title: '目标反推', icon: Aim, badge: '新' },
       { path: '/wrongbook', title: '错题复盘', icon: Tickets, badge: '新' },
-      { path: '/interview', title: '模拟面试', icon: Microphone, badge: 'Beta' },
+      { path: '/interview', title: '模拟面试', icon: Microphone, badge: '试用' },
       { path: '/interview-bank', title: '题库管理', icon: Notebook },
       { path: '/growth', title: '成长数据', icon: DataAnalysis }
     ]
@@ -306,8 +311,8 @@ onMounted(loadShellState)
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #eef5ef;
-  border-right: 1px solid var(--border-subtle);
+  background: linear-gradient(180deg, #f4f8ff 0%, #eef8f3 58%, #e8f3ec 100%);
+  border-right: 1px solid #d3dfdf;
   z-index: var(--z-sidebar);
 }
 
@@ -317,7 +322,8 @@ onMounted(loadShellState)
   display: flex;
   align-items: center;
   gap: 8px;
-  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.54);
+  border-bottom: 1px solid rgba(184, 204, 210, 0.68);
 }
 
 .brand-link {
@@ -325,6 +331,12 @@ onMounted(loadShellState)
   flex: 1;
   color: inherit;
   text-decoration: none;
+  transition: opacity var(--motion-fast), transform var(--motion-fast);
+}
+
+.brand-link:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
 }
 
 .icon-button {
@@ -355,8 +367,8 @@ onMounted(loadShellState)
   display: flex;
   align-items: center;
   gap: 10px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(184, 204, 210, 0.68);
   border-radius: var(--radius-panel);
 }
 
@@ -430,9 +442,9 @@ onMounted(loadShellState)
 }
 
 .nav-item.router-link-active {
-  color: var(--accent);
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
+  color: var(--brand-blue-strong);
+  background: var(--brand-blue-soft);
+  border-color: var(--brand-blue-border);
 }
 
 .nav-item .el-icon {
@@ -448,8 +460,8 @@ onMounted(loadShellState)
 
 .nav-badge {
   padding: 2px 6px;
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--brand-blue-strong);
+  background: rgba(219, 233, 255, 0.82);
   border-radius: 5px;
   font-size: 10px;
   font-weight: 600;
@@ -552,8 +564,8 @@ onMounted(loadShellState)
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  background: rgba(255, 255, 255, 0.92);
-  border-bottom: 1px solid var(--border-subtle);
+  background: #fbfdff;
+  border-bottom: 1px solid #dbe5e9;
   z-index: var(--z-sticky);
 }
 
@@ -566,7 +578,7 @@ onMounted(loadShellState)
 
 .topbar-title p {
   margin: 0 0 3px;
-  color: var(--text-muted);
+  color: var(--brand-blue-strong);
   font-size: 11px;
 }
 
@@ -584,16 +596,21 @@ onMounted(loadShellState)
 }
 
 .avatar {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   margin-left: 4px;
-  display: grid;
-  place-items: center;
-  color: #ffffff;
-  background: var(--accent);
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 800;
+  overflow: hidden;
+  background: var(--brand-blue-soft);
+  border: 1px solid var(--brand-blue-border);
+  border-radius: 12px;
+}
+
+.avatar img {
+  width: 100%;
+  height: 145%;
+  display: block;
+  object-fit: cover;
+  object-position: center 4%;
 }
 
 .content-scroll {
@@ -601,6 +618,10 @@ onMounted(loadShellState)
   min-height: 0;
   padding: 28px 32px 40px;
   overflow: auto;
+  background:
+    radial-gradient(circle at 96% 1%, rgba(56, 126, 239, 0.08), transparent 260px),
+    radial-gradient(circle at 2% 96%, rgba(47, 125, 85, 0.07), transparent 300px),
+    var(--bg-base);
 }
 
 .settings-list {

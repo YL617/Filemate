@@ -119,8 +119,18 @@ class Namer:
             if isinstance(val, str) and val.strip():
                 name = cls._clean(val)
                 if name:
-                    return name[:cls._ORGANIZER_MAX]
+                    return cls._shorten_organizer(name)
         return ""
+
+    @classmethod
+    def _shorten_organizer(cls, name: str) -> str:
+        """把赛事组委会长名称压缩为可读的文件名前缀。"""
+        if "大赛" in name and ("组织委员会" in name or "组委会" in name):
+            latin_name = re.search(r"[A-Za-z][A-Za-z0-9+.-]*", name)
+            if latin_name:
+                return f"{latin_name.group(0)}大赛组委会"[:cls._ORGANIZER_MAX]
+        shortened = name.replace("组织委员会", "组委会")
+        return shortened[:cls._ORGANIZER_MAX]
 
     @staticmethod
     def _format_deadline(raw: str) -> str:

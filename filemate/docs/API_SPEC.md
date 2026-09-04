@@ -335,6 +335,9 @@ storage.init_schema()
 | `interview_questions` | 可维护面试题库、启停状态与场景/难度过滤 |
 | `study_plans` | 学习计划、每日完成状态和考试目标 |
 | `product_feedback` | 匿名产品反馈哈希与统计上下文 |
+| `agent_runs` / `agent_steps` | 按需选择的 Agent 角色、真实步骤、来源标识与输出摘要 |
+| `agent_memories` | 四类可撤销摘要记忆及其来源、可用角色和删除状态 |
+| `source_rights` | 资料权利来源、分享范围与确认时间 |
 
 **线程安全：** 每个线程持有独立 `sqlite3.Connection`，开启 WAL、`busy_timeout=10000` 和 `foreign_keys=ON`；写操作由进程内可重入锁串行保护。
 
@@ -360,6 +363,10 @@ storage.init_schema()
 | `append_context_messages` | `(ctx_id, messages) -> list[dict]` | 原子追加并返回聊天历史 |
 | `list_interview_questions` | `(*, scenario=None, difficulty=None, enabled=None, limit=100) -> list[dict]` | 筛选面试题库 |
 | `create_interview_question` | `(*, scenario, difficulty, text, enabled=1) -> str` | 新增题目；重复内容拒绝 |
+| `create_agent_run` | `(*, task_type, goal, selected_agents, context_refs=None) -> dict` | 创建可审计 Agent 运行 |
+| `append_agent_step` | `(*, run_id, agent_name, input_refs, output_summary, status="completed") -> dict` | 追加真实执行步骤，不保存输入原文 |
+| `save_agent_memory` | `(*, memory_type, scope_id, source_type, source_id, summary, allowed_agents, ...) -> dict` | 保存带来源和使用范围的摘要记忆 |
+| `set_source_rights` | `(*, source_id, rights_status, sharing_scope="private", note="") -> dict` | 声明资料授权与分享边界 |
 
 **边界行为：**
 - `update_session` 空 `kwargs` → 无操作
@@ -388,6 +395,7 @@ HTTP 错误同样保持该结构：参数错误使用 `400/422`，资源不存�
 | `GET` | `/knowledge/sources/{source_id}` | 获取资料源详情 | 包含解析正文与元数据 |
 | `GET` | `/knowledge/sources/{source_id}/artifacts` | 查询资料派生产物 | 支持 `artifact_type` 与 `limit` |
 | `DELETE` | `/knowledge/sources/{source_id}` | 预览并删除资料及其派生产物 | 级联删除派生数据；仅清理托管上传副本 |
+| `PUT` | `/knowledge/sources/{source_id}/rights` | 声明资料来源与分享范围 | 写入 `source_rights`、安全 Agent 轨迹和操作记忆 |
 
 AI 生成接口成功时同时返回 `ctx_id`、`source_id`、`artifact_id`。服务重启后，这三个标识仍然有效。`POST /ai/chat` 将 assistant 消息的 `citations` 与正文一并持久化，恢复历史会话后仍可核验引用来源。
 
@@ -451,7 +459,7 @@ AI 生成接口成功时同时返回 `ctx_id`、`source_id`、`artifact_id`。�
 | `PATCH` | `/study-plans/{plan_id}/days/{day_index}` | 更新每日完成状态 | 写入 `study_plans.completed_days` |
 | `POST` | `/interviews` | 创建模拟面试 | 写入 `interview_sessions` |
 | `GET` | `/interviews/{interview_id}` | 获取面试进度 | 无 |
-| `POST` | `/interviews/{interview_id}/answers` | 提交面试回答并评分 | 写入 `interview_turns` |
+| `POST` | `/interviews/{interview_id}/answers` | 提交面试回答并评分；语音回答可附流畅度指标 | 写入 `interview_turns` 与 `fluency_metrics` |
 | `GET` | `/interview/questions` | 列出面试题库题目 | 支持 `scenario` / `difficulty` / `enabled` 过滤，`limit` 上限 500 |
 | `POST` | `/interview/questions` | 新增题库题目 | 写入 `interview_questions` |
 | `PATCH` | `/interview/questions/{question_id}` | 更新题库题目 | 更新 `interview_questions` |
@@ -460,9 +468,28 @@ AI 生成接口成功时同时返回 `ctx_id`、`source_id`、`artifact_id`。�
 | `POST` | `/evaluation/feedback` | 提交匿名产品反馈 | 写入 `product_feedback` |
 | `GET` | `/evaluation/feedback/summary` | 反馈汇总 | 无 |
 | `GET` | `/evaluation/feedback/export.csv` | 导出匿名反馈 CSV | 无 |
+| `GET` | `/trust/overview` | 获取角色目录、真实运行轨迹、共享记忆元数据与授权状态 | 无 |
+| `PUT` | `/knowledge/sources/{source_id}/rights` | 更新资料授权与分享范围 | 写入授权、安全 Agent 轨迹和操作记忆 |
+| `DELETE` | `/agents/memories/{memory_id}` | 撤销一条共享记忆 | 软删除记忆并记录安全 Agent 轨迹 |
 | `GET` | `/api/health` | 健康检查 | 无 |
 
-说明：`POST /interviews` 创建面试时按场景和难度选择最近维护的启用题目，响应和持久化记录均包含与 `questions` 等长的 `question_ids`；静态回退题及 v8 旧会话对应 `null`。评分响应新增 `scoring_mode`，取值为 `llm` 或 `local_fallback`。
+说明：`POST /interviews` 创建面试时按场景和难度选择最近维护的启用题目，响应和持久化记录均包含与 `questions` 等长的 `question_ids`；静态回退题及 v8 旧会话对应 `null`。评分响应包含 `scoring_mode`，取值为 `llm` 或 `local_fallback`。
+
+语音回答可以在请求中附带可选字段：
+
+```json
+{
+  "answer": "我先分析问题，再制定方案并完成验证。",
+  "fluency_metrics": {
+    "duration_seconds": 18,
+    "filler_count": 1,
+    "long_pause_count": 0,
+    "source": "speech_recognition"
+  }
+}
+```
+
+服务端根据回答字数和时长重新计算字速，并把流畅度作为 15% 的低权重参考分写入 `dimensions.流畅性`；文字回答或不足 2 秒的语音不会生成流畅度结论。摄像头画面不经过该 API，也不在 v14 数据库保存。面试创建和逐题评价同时写入真实 Agent 轨迹；轨迹只保存题号、会话 ID 和评分摘要，不复制回答原文。
 
 ---
 
@@ -481,3 +508,5 @@ AI 生成接口成功时同时返回 `ctx_id`、`source_id`、`artifact_id`。�
 | 2026-08-28 | v1.7 | LLM 鉴权、余额或权限错误改为立即失败并进入本地降级，避免无效重试拖慢导入 | Codex |
 | 2026-08-28 | v1.8 | 增加 AI 会话列表与恢复合同、结构化引用持久化和列表限流 | AcMaster-MAX / Codex |
 | 2026-08-28 | v1.9 | 默认模型统一迁移至 `deepseek-v4-flash`，移除 Step 系列运行时分支并拒绝旧配置 | Codex |
+| 2026-09-02 | v1.10 | 增加 SQLite v13 面试流畅度证据、摄像头本地预览边界与可选请求合同 | Codex |
+| 2026-09-03 | v1.11 | 增加 SQLite v14 可信 Agent 轨迹、共享记忆撤销、资料授权与隐私中心接口 | Codex |

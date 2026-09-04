@@ -209,6 +209,17 @@ class TestNamerOrganizerFallback:
         # 截断到 12 字
         assert "[安徽理工大学计算机科学与]" in name
 
+    def test_competition_committee_uses_readable_short_name(self) -> None:
+        namer, _ = _make_namer()
+        name = namer.generate(
+            category="竞赛通知",
+            course="",
+            task="AI-OPC超级个体挑战赛",
+            deadline="2026-08-31",
+            extra_entities={"organizer": "iCAN大学生创新创业大赛组织委员会"},
+        )
+        assert name == "[iCAN大赛组委会]-[竞赛通知]-[AI-OPC超级个体挑战赛]-[0831]-[待处理]"
+
     def test_brackets_in_organizer_cleaned(self) -> None:
         namer, _ = _make_namer()
         name = namer.generate(

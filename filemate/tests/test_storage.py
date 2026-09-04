@@ -54,7 +54,7 @@ def _apply_migrations_upto(db_path: Path, upto: int) -> None:
 
 class TestMigrationUpgrade:
     def test_upgrade_from_old_version(self, tmp_path: Path) -> None:
-        """v5 旧库逐级升级到 v12，且现役表和字段确实建立。"""
+        """v5 旧库逐级升级到 v14，且现役表和字段确实建立。"""
         db = tmp_path / "old.db"
         _apply_migrations_upto(db, 5)
         legacy = sqlite3.connect(db)
@@ -70,9 +70,9 @@ class TestMigrationUpgrade:
         s = SQLiteStorage(db)
         s.init_schema()
 
-        assert s.get_schema_version() == 12
+        assert s.get_schema_version() == 14
         assert [m["version"] for m in s.list_migrations()] == [
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 12
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14
         ]
 
         conn = s._conn()
@@ -89,6 +89,12 @@ class TestMigrationUpgrade:
             r["name"] for r in conn.execute("PRAGMA table_info(interview_sessions)")
         }
         assert "question_ids" in interview_cols  # v9 字段
+        turn_cols = {
+            r["name"] for r in conn.execute("PRAGMA table_info(interview_turns)")
+        }
+        assert "fluency_metrics" in turn_cols  # v13 字段
+        assert "agent_run_id" in interview_cols  # v14 字段
+        assert {"agent_runs", "agent_steps", "agent_memories", "source_rights"} <= tables
         upgraded_interview = s.get_interview("legacy-interview")
         assert upgraded_interview is not None
         assert upgraded_interview["question_ids"] == [None, None]
@@ -121,7 +127,7 @@ class TestMigrationUpgrade:
         storage = SQLiteStorage(db)
         storage.init_schema()
 
-        assert storage.get_schema_version() == 12
+        assert storage.get_schema_version() == 14
         migrations = {item["version"]: item["name"] for item in storage.list_migrations()}
         assert migrations[9] == "ai_learning"
         assert migrations[12] == "interview_question_bank_compatibility"
@@ -188,12 +194,12 @@ class TestSchemaInit:
             assert expected in names
 
     def test_versioned_migrations_applied(self, storage: SQLiteStorage) -> None:
-        assert storage.get_schema_version() == 12
+        assert storage.get_schema_version() == 14
         migrations = storage.list_migrations()
         assert [item["version"] for item in migrations] == [
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 12
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14
         ]
-        assert migrations[-1]["name"] == "interview_question_bank_compatibility"
+        assert migrations[-1]["name"] == "trusted_agent_memory_and_rights"
 
     def test_knowledge_tables_and_local_workspace_exist(
         self,
@@ -220,8 +226,82 @@ class TestSchemaInit:
             "interview_questions",
             "study_plans",
             "product_feedback",
+            "agent_runs",
+            "agent_steps",
+            "agent_memories",
+            "source_rights",
         } <= tables
         assert storage.get_workspace("local")["name"] == "本地工作区"
+
+
+class TestTrustedAgentMemoryAndRights:
+    def test_agent_run_records_only_references_and_summaries(
+        self,
+        storage: SQLiteStorage,
+    ) -> None:
+        run = storage.create_agent_run(
+            task_type="interview_session",
+            goal="完成一次后端岗位模拟面试",
+            selected_agents=["面试 Agent", "评价 Agent"],
+            context_refs={"interview_id": "demo"},
+        )
+        step = storage.append_agent_step(
+            run_id=run["run_id"],
+            agent_name="面试 Agent",
+            input_refs={"question_id": "q-1"},
+            output_summary="已选择一道结构化问题",
+        )
+        memory = storage.save_agent_memory(
+            memory_type="growth",
+            scope_id="demo",
+            source_type="interview_turn",
+            source_id="demo:0",
+            summary="第 1 题得分 82，用于后续复盘",
+            allowed_agents=["评价 Agent", "规划 Agent"],
+        )
+        assert storage.finish_agent_run(run["run_id"]) is True
+
+        saved = storage.get_agent_run(run["run_id"])
+        assert saved is not None
+        assert saved["status"] == "completed"
+        assert saved["selected_agents"] == ["面试 Agent", "评价 Agent"]
+        assert saved["steps"][0]["step_id"] == step["step_id"]
+        assert saved["steps"][0]["input_refs"] == {"question_id": "q-1"}
+        assert storage.list_agent_memories()[0]["memory_id"] == memory["memory_id"]
+        assert storage.soft_delete_agent_memory(memory["memory_id"]) is True
+        assert storage.list_agent_memories() == []
+
+    def test_unconfirmed_source_cannot_be_shared(
+        self,
+        storage: SQLiteStorage,
+    ) -> None:
+        source_id = storage.save_source(
+            original_name="课程讲义.pdf",
+            source_path="C:/资料/课程讲义.pdf",
+            raw_text="仅供测试",
+        )
+        default_rights = storage.get_source_rights(source_id)
+        assert default_rights is not None
+        assert default_rights["rights_status"] == "unconfirmed"
+        assert default_rights["sharing_scope"] == "private"
+
+        with pytest.raises(ValueError, match="只能保持私有"):
+            storage.set_source_rights(
+                source_id=source_id,
+                rights_status="unconfirmed",
+                sharing_scope="shareable",
+            )
+
+        saved = storage.set_source_rights(
+            source_id=source_id,
+            rights_status="authorized",
+            sharing_scope="restricted",
+            note="课堂内部授权",
+        )
+        assert saved["confirmed_at"] is not None
+        listed = storage.list_source_rights()
+        assert listed[0]["original_name"] == "课程讲义.pdf"
+        assert "raw_text" not in listed[0]
 
 
 # ──────────────────────────────────────────────
@@ -422,6 +502,95 @@ class TestUserRules:
 
 
 class TestKnowledgePersistence:
+    def test_source_lineage_aggregates_real_learning_evidence(
+        self,
+        storage: SQLiteStorage,
+    ) -> None:
+        source_id = storage.save_source(
+            original_name="操作系统讲义.pdf",
+            source_path="C:/资料/操作系统讲义.pdf",
+            raw_text="进程与线程。",
+        )
+        storage.replace_source_chunks(
+            source_id,
+            [{"chunk_index": 0, "page_number": 1, "content": "进程与线程。"}],
+        )
+        storage.save_artifact(
+            source_id=source_id,
+            artifact_type="summary",
+            title="操作系统摘要",
+            content="摘要内容",
+        )
+        question_artifact_id = storage.save_artifact(
+            source_id=source_id,
+            artifact_type="questions",
+            title="操作系统练习",
+            content=[{"question": "进程是什么？", "answer": "资源分配单位"}],
+        )
+        storage.record_quiz_attempt(
+            artifact_id=question_artifact_id,
+            question_index=0,
+            user_answer="不知道",
+            is_correct=False,
+            score=0,
+            feedback="请复习原文",
+        )
+        plan_artifact_id = storage.save_artifact(
+            source_id=source_id,
+            artifact_type="study_plan",
+            title="操作系统计划",
+            content={"daily_plan": []},
+        )
+        storage.create_study_plan(
+            artifact_id=plan_artifact_id,
+            source_id=source_id,
+            plan={
+                "title": "操作系统计划",
+                "exam_date": "2026-10-01",
+                "daily_minutes": 30,
+                "goal": "完成复习",
+                "daily_plan": [{"date": "2026-09-05"}],
+            },
+        )
+        run = storage.create_agent_run(
+            task_type="interview_session",
+            goal="围绕讲义模拟答辩",
+            selected_agents=["面试 Agent", "评价 Agent"],
+            context_refs={"source_id": source_id},
+        )
+        interview = storage.create_interview(
+            target_role="课程答辩",
+            scenario="竞赛答辩",
+            difficulty="标准",
+            questions=["请解释进程与线程。"],
+            agent_run_id=run["run_id"],
+        )
+        storage.save_interview_turn(
+            interview_id=interview["interview_id"],
+            question_index=0,
+            question="请解释进程与线程。",
+            answer="进程拥有资源，线程负责执行。",
+            score=80,
+            dimensions={"内容准确性": 80},
+            feedback="继续补充例子",
+        )
+
+        lineage = storage.get_source_lineage(source_id)
+
+        assert lineage is not None
+        assert lineage["completed_stage_count"] == 6
+        assert lineage["artifact_counts"] == {
+            "questions": 1,
+            "study_plan": 1,
+            "summary": 1,
+        }
+        stages = {stage["key"]: stage for stage in lineage["stages"]}
+        assert stages["source"]["secondary"] == "1 个可引用片段"
+        assert stages["practice"]["primary"] == "1 次真实作答"
+        assert stages["review"]["primary"] == "1 道错题进入闭环"
+        assert stages["plan"]["primary"] == "1 份学习计划"
+        assert stages["interview"]["primary"] == "1 场资料关联面试"
+
     def test_source_is_stable_for_same_file_hash(
         self,
         storage: SQLiteStorage,

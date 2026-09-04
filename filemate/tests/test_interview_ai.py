@@ -1,6 +1,8 @@
 from filemate.execution.storage import SQLiteStorage
 from filemate.understanding.interview import (
+    InterviewEvaluator,
     build_interview_questions,
+    build_source_grounded_question,
     generate_interview_questions_with_llm,
     select_question_ids_with_llm,
 )
@@ -12,6 +14,46 @@ class FakeLLM:
 
     def call(self, **kwargs):
         return self.payload
+
+
+def test_interview_fluency_is_explicit_and_low_weight() -> None:
+    answer = "我先分析问题，再制定方案并完成验证。" * 10
+    result = InterviewEvaluator(None).evaluate(
+        "请介绍一个项目。",
+        answer,
+        "后端开发",
+        {
+            "duration_seconds": 60,
+            "filler_count": 2,
+            "long_pause_count": 1,
+            "source": "speech_recognition",
+            "markers": [
+                {"second": 8.4, "kind": "filler", "label": "任意前端文案"},
+                {"second": 24.2, "kind": "long_pause", "label": "任意前端文案"},
+            ],
+        },
+    )
+
+    assert "流畅性" in result["dimensions"]
+    assert result["fluency"]["chars_per_minute"] > 0
+    assert result["fluency"]["filler_count"] == 2
+    assert result["fluency"]["long_pause_count"] == 1
+    assert result["fluency"]["markers"] == [
+        {"second": 8.4, "kind": "filler", "label": "出现口头语"},
+        {"second": 24.2, "kind": "long_pause", "label": "较长停顿"},
+    ]
+    assert "语音节奏参考" in result["feedback"]
+
+
+def test_typed_interview_answer_does_not_invent_fluency() -> None:
+    result = InterviewEvaluator(None).evaluate(
+        "请介绍一个项目。",
+        "我负责接口设计和测试。",
+        "后端开发",
+    )
+
+    assert "流畅性" not in result["dimensions"]
+    assert "fluency" not in result
 
 
 def _make_storage(tmp_path):
@@ -48,6 +90,17 @@ def test_generate_interview_questions_deduplicates_and_limits() -> None:
         count=5,
     )
     assert questions == ["题目一", "题目二"]
+
+
+def test_source_grounded_question_names_selected_evidence() -> None:
+    question = build_source_grounded_question(
+        "FileMate 项目申报书.pdf",
+        "竞赛答辩",
+        "创新赛道",
+    )
+
+    assert "FileMate 项目申报书.pdf" in question
+    assert "材料中能够支撑" in question
 
 
 def test_build_interview_questions_ai_selects_then_fills_deterministically(

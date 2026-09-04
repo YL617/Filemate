@@ -1,0 +1,1 @@
+participant_id,task_id,condition,completed,hallucination_count,reviewed_claim_count,elapsed_seconds,model_calls,estimated_cost_yuan

@@ -10,7 +10,7 @@
         <el-icon class="title-icon"><MagicStick /></el-icon>
         资料理解工作区
       </h1>
-      <p class="page-subtitle">上传文档，AI 帮你搞定学习笔记、知识卡、练习题</p>
+      <p class="page-subtitle">上传学习资料，生成可编辑的摘要、知识卡、练习题与笔记。</p>
     </div>
 
     <div class="main-layout">
@@ -28,7 +28,11 @@
           </button>
         </div>
         <div class="session-list" v-if="sidebarOpen">
-          <div v-if="loadingSessions" class="sidebar-loading">加载中...</div>
+          <div v-if="loadingSessions" class="sidebar-loading">正在读取会话…</div>
+          <div v-else-if="sessionError" class="sidebar-error" role="status">
+            <span>会话暂时无法读取</span>
+            <button type="button" @click="loadSessions">重新加载</button>
+          </div>
           <div v-else-if="sessions.length === 0" class="sidebar-empty">暂无历史会话</div>
           <button
             v-for="session in sessions"
@@ -409,17 +413,19 @@ const questionAnswers = ref<Record<string, string>>({})
 const questionResults = ref<Record<string, QuizAttemptResult>>({})
 
 // 会话侧边栏
-const sidebarOpen = ref(true)
+const sidebarOpen = ref(window.matchMedia('(min-width: 769px)').matches)
 const sessions = ref<AISessionSummary[]>([])
 const loadingSessions = ref(false)
+const sessionError = ref('')
 const currentCtxId = ref<string | null>(null)
 
 const loadSessions = async () => {
   loadingSessions.value = true
+  sessionError.value = ''
   try {
     sessions.value = await listAIContexts(undefined, 50)
-  } catch (e: any) {
-    ElMessage.error(e.message || '加载会话列表失败')
+  } catch (error: unknown) {
+    sessionError.value = error instanceof Error ? error.message : '加载会话列表失败'
   } finally {
     loadingSessions.value = false
   }
@@ -660,13 +666,9 @@ onMounted(() => {
 <style scoped>
 .ai-tools-page {
   --bg-card: var(--bg-surface);
-  --border-subtle: #d7e3d9;
-  --border-default: #bfd0c3;
-  --text-primary: #183229;
-  --text-secondary: #4d655b;
-  --text-muted: #6d8077;
+  --border-default: var(--border-strong);
 
-  max-width: 1000px;
+  max-width: 1120px;
   margin: 0 auto;
   padding: 24px;
 }
@@ -677,8 +679,8 @@ onMounted(() => {
 }
 
 .page-title {
-  font-size: 28px;
-  font-weight: 600;
+  font-size: 30px;
+  font-weight: 700;
   color: var(--text-primary);
   margin: 0 0 8px;
 }
@@ -732,6 +734,11 @@ onMounted(() => {
 
 /* 上传区域 */
 .upload-zone {
+  width: 100%;
+  min-height: 236px;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
   background: var(--bg-card);
   border: 2px dashed var(--border-default);
   border-radius: 16px;
@@ -765,7 +772,7 @@ onMounted(() => {
 
 .upload-filename {
   font-size: 16px;
-  color: #a5b4fc;
+  color: var(--brand-blue-strong);
   font-weight: 500;
   margin: 0 0 8px;
 }
@@ -811,7 +818,7 @@ onMounted(() => {
 
 .config-value {
   font-size: 14px;
-  color: #a5b4fc;
+  color: var(--accent);
   min-width: 60px;
 }
 
@@ -991,7 +998,7 @@ onMounted(() => {
 
 .question-type {
   font-size: 11px;
-  color: #a5b4fc;
+  color: var(--brand-blue-strong);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 8px;
@@ -1020,7 +1027,7 @@ onMounted(() => {
 
 .question-answer {
   font-size: 13px;
-  color: #4ade80;
+  color: var(--success);
   margin-bottom: 4px;
 }
 
@@ -1055,7 +1062,7 @@ onMounted(() => {
 .section-title {
   font-size: 15px;
   font-weight: 600;
-  color: #a5b4fc;
+  color: var(--brand-blue-strong);
   margin-bottom: 8px;
 }
 
@@ -1080,7 +1087,7 @@ onMounted(() => {
   flex: 1;
   overflow-y: auto;
   padding: 12px;
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--bg-elevated);
   border-radius: 12px;
   margin-bottom: 12px;
 }
@@ -1134,7 +1141,7 @@ onMounted(() => {
 .chat-input-area input {
   flex: 1;
   padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: 10px;
   color: var(--text-primary);
@@ -1329,7 +1336,7 @@ onMounted(() => {
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
   padding: 12px;
-  transition: width 0.2s, padding 0.2s, opacity 0.2s;
+  transition: opacity var(--motion-fast), border-color var(--motion-fast), background-color var(--motion-fast);
   overflow: hidden;
 }
 
@@ -1456,6 +1463,25 @@ onMounted(() => {
   color: var(--text-muted);
   text-align: center;
   padding: 20px 8px;
+}
+
+.sidebar-error {
+  padding: 16px 8px;
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.sidebar-error button {
+  min-height: 34px;
+  padding: 0 10px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
 }
 
 .main-content {

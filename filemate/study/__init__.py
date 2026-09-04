@@ -6,6 +6,7 @@ from .generator import (
     chunk_text,
     generate_questions_with_llm,
 )
+from .goal_planner import build_reverse_goal_plan
 from .scheduling import (
     REVIEW_INTERVALS,
     is_due,
@@ -19,6 +20,7 @@ __all__ = [
     "check_answer",
     "chunk_text",
     "generate_questions_with_llm",
+    "build_reverse_goal_plan",
     "is_due",
     "next_review_date_str",
     "review_stage_after",
