@@ -35,7 +35,7 @@
 
 ```powershell
 python evaluation/analyze_feedback.py filemate-anonymous-feedback.csv --sample-kind real --output _working/real-feedback-report.json
-python evaluation/analyze_study.py evaluation/datasets/user_study.csv --output _working/real-user-study-report.json
+python evaluation/analyze_study.py --annotations evaluation/datasets/retrieval_annotations.csv --study evaluation/datasets/user_study.csv --output _working/real-user-study-report.json
 python evaluation/analyze_competition_trials.py --agent evaluation/datasets/agent_ab.csv --interview evaluation/datasets/interview_ab.csv --companion evaluation/datasets/companion_ab.csv --output _working/competition-trials-report.json
 ```
 

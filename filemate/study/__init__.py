@@ -17,10 +17,10 @@ from .scheduling import (
 __all__ = [
     "REVIEW_INTERVALS",
     "analyze_document_with_llm",
+    "build_reverse_goal_plan",
     "check_answer",
     "chunk_text",
     "generate_questions_with_llm",
-    "build_reverse_goal_plan",
     "is_due",
     "next_review_date_str",
     "review_stage_after",

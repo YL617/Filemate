@@ -358,6 +358,7 @@ storage.init_schema()
 | `add_rule` | `(rule_type: str, pattern: str, replacement: str, priority: int = 0) -> int` | 新增用户规则 |
 | `list_rules` | `(rule_type: str \| None = None, enabled_only: bool = True) -> list[dict]` | 列出规则 |
 | `save_source` | `(*, original_name, source_path, raw_text="", ...) -> str` | 新增或按哈希更新资料源 |
+| `get_source_lineage` | `(source_id) -> dict \| None` | 聚合资料、产物、练习、错题、计划和关联面试计数，不返回原文 |
 | `save_artifact` | `(*, artifact_type, content, source_id=None, ...) -> str` | 保存资料派生的 AI 产物 |
 | `save_document_context` | `(*, ctx_id, context_text, ...) -> None` | 保存可恢复问答上下文 |
 | `append_context_messages` | `(ctx_id, messages) -> list[dict]` | 原子追加并返回聊天历史 |
@@ -394,6 +395,7 @@ HTTP 错误同样保持该结构：参数错误使用 `400/422`，资源不存�
 | `GET` | `/knowledge/sources` | 列出本地资料源 | 不返回大段 `raw_text`，返回 `text_length` |
 | `GET` | `/knowledge/sources/{source_id}` | 获取资料源详情 | 包含解析正文与元数据 |
 | `GET` | `/knowledge/sources/{source_id}/artifacts` | 查询资料派生产物 | 支持 `artifact_type` 与 `limit` |
+| `GET` | `/knowledge/sources/{source_id}/lineage` | 查询六阶段学习资产链 | 只聚合真实持久化记录，不返回原文 |
 | `DELETE` | `/knowledge/sources/{source_id}` | 预览并删除资料及其派生产物 | 级联删除派生数据；仅清理托管上传副本 |
 | `PUT` | `/knowledge/sources/{source_id}/rights` | 声明资料来源与分享范围 | 写入 `source_rights`、安全 Agent 轨迹和操作记忆 |
 
@@ -457,6 +459,10 @@ AI 生成接口成功时同时返回 `ctx_id`、`source_id`、`artifact_id`。�
 | `GET` | `/study-plans` | 查询学习计划列表 | 无 |
 | `GET` | `/study-plans/{plan_id}` | 查询单个学习计划 | 无 |
 | `PATCH` | `/study-plans/{plan_id}/days/{day_index}` | 更新每日完成状态 | 写入 `study_plans.completed_days` |
+| `POST` | `/goals/reverse-plan` | 从目标和当前学习证据反推缺口与任务 | 写入 `reverse_goal_plan` Artifact、Agent 轨迹和摘要记忆 |
+| `GET` | `/goals` | 列出已保存的目标反推计划 | 无 |
+| `PATCH` | `/goals/{goal_id}/tasks/{task_id}` | 更新目标任务完成状态 | 更新目标 Artifact |
+| `POST` | `/goals/{goal_id}/replan` | 读取最新证据重新规划并保留已完成任务 | 更新目标 Artifact 和 Agent 轨迹 |
 | `POST` | `/interviews` | 创建模拟面试 | 写入 `interview_sessions` |
 | `GET` | `/interviews/{interview_id}` | 获取面试进度 | 无 |
 | `POST` | `/interviews/{interview_id}/answers` | 提交面试回答并评分；语音回答可附流畅度指标 | 写入 `interview_turns` 与 `fluency_metrics` |
@@ -489,7 +495,7 @@ AI 生成接口成功时同时返回 `ctx_id`、`source_id`、`artifact_id`。�
 }
 ```
 
-服务端根据回答字数和时长重新计算字速，并把流畅度作为 15% 的低权重参考分写入 `dimensions.流畅性`；文字回答或不足 2 秒的语音不会生成流畅度结论。摄像头画面不经过该 API，也不在 v14 数据库保存。面试创建和逐题评价同时写入真实 Agent 轨迹；轨迹只保存题号、会话 ID 和评分摘要，不复制回答原文。
+服务端根据回答字数和时长重新计算字速，并把流畅度作为 15% 的低权重参考分写入 `dimensions.流畅性`；文字回答或不足 2 秒的语音不会生成流畅度结论。摄像头与麦克风录像只保存在当前浏览器页的 Blob URL 中，不上传、不写入 v14 数据库，刷新即清除；时间轴只持久化口头语/长停顿的类型与时间点。面试创建和逐题评价同时写入真实 Agent 轨迹；轨迹只保存题号、会话 ID 和评分摘要，不复制回答原文。资料驱动面试仅在资料权利确认为本人、授权或公开时向模型发送最多 2000 字符摘录，否则只使用本地文件名。
 
 ---
 
@@ -510,3 +516,4 @@ AI 生成接口成功时同时返回 `ctx_id`、`source_id`、`artifact_id`。�
 | 2026-08-28 | v1.9 | 默认模型统一迁移至 `deepseek-v4-flash`，移除 Step 系列运行时分支并拒绝旧配置 | Codex |
 | 2026-09-02 | v1.10 | 增加 SQLite v13 面试流畅度证据、摄像头本地预览边界与可选请求合同 | Codex |
 | 2026-09-03 | v1.11 | 增加 SQLite v14 可信 Agent 轨迹、共享记忆撤销、资料授权与隐私中心接口 | Codex |
+| 2026-09-05 | v1.12 | 增加目标反推、资料学习资产链、本地录像时间轴和资料驱动面试合同 | Codex |

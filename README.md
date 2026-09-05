@@ -37,13 +37,14 @@ FileMate 是一个面向大学生的本地优先 AI 学习工作台。它把散�
 | 可信执行 | 草稿编辑、最终确认、目标冲突保护、失败回滚、幂等确认、一键撤销 | `confirmation_executor.py` |
 | 日程管理 | 从截止日期和里程碑生成 RFC 5545 `.ics`，确认前只预览 | `scheduler.py`、`Schedule.vue` |
 | AI 工具 | 摘要、知识卡、练习题、结构化笔记、基于资料的问答、学习计划 | `ai_tools.py`、`AITools.vue` |
-| 个人知识库 | 资料源、AI 产物、聊天上下文持久化；跨资料词法检索与引用 | `storage.py`、`retrieval.py`、`Knowledge.vue` |
+| 个人知识库 | 资料源、AI 产物、聊天上下文持久化；跨资料检索与引用；六阶段学习资产链 | `storage.py`、`retrieval.py`、`Knowledge.vue` |
 | 学习闭环 | 练习作答、自动错题本、掌握状态、间隔重复、今日复习队列 | `/quiz`、`/wrongbook`、`/review/today` |
 | 学习计划 | 根据考试日期生成日计划，持久记录每日完成状态，支持 CSV/ICS 导出 | `StudyPlan.vue` |
-| 模拟面试 | 求职、竞赛答辩、保研复试；摄像头本地预览、语音流畅度与分项评分；模型不可用时本地降级 | `interview.py`、`Interview.vue` |
-| 可信 Agent | 面试与授权任务按需选择角色；记录真实步骤、来源标识与输出摘要；共享记忆可撤销 | `trusted_agents.py`、`TrustCenter.vue` |
+| 目标反推 | 依据资料、练习、错题、计划与面试记录诊断差距，生成任务并动态重排 | `goal_planner.py`、`GoalPlanner.vue` |
+| 模拟面试 | 摄像头/麦克风独立授权、本地录像回放、语音流畅度与时间轴、资料驱动追问、本地降级 | `interview.py`、`Interview.vue` |
+| 可信 Agent | 面试、目标与授权任务按需选择角色；记录真实步骤、来源标识与输出摘要；共享记忆可撤销 | `trusted_agents.py`、`TrustCenter.vue` |
 | 版权与隐私 | 资料默认未确认且仅自己可用；授权声明、分享边界与记忆撤销可视化 | `/trust/overview`、`source_rights` |
-| 成长数据 | 资料、练习、错题、计划、面试等本地统计；匿名反馈导出 | `Growth.vue`、`evaluation/` |
+| 成长数据 | 真实行为统计、匿名反馈导出；学习伙伴表情与阶段由本地学习证据驱动 | `Growth.vue`、`evaluation/` |
 | 多端工程 | Vue Web、FastAPI Sidecar、Tauri 2 桌面工程、CLI | `filemate/web/`、`server.py`、`main.py` |
 
 ### 2.2 已有基础，但仍需完善
@@ -52,7 +53,7 @@ FileMate 是一个面向大学生的本地优先 AI 学习工作台。它把散�
 |---|---|---|
 | 检索增强问答 | 当前为本地分块 + BM25 风格词法排序 + 页码/片段引用，不是向量 RAG | 增加可替换 Embedding 适配器、对照评测和稳定引用 |
 | 成长画像 | 已有真实行为聚合，不生成虚假数据 | 完善指标解释、时间窗口和空状态 |
-| 模拟面试 | 文字回答、语音流畅度和分项评分可用；摄像头仅本地预览，语音依赖浏览器能力 | 加强题库、时间轴回放和真实导师盲评 |
+| 模拟面试 | 文字/语音、摄像头本地录像回放、时间轴和资料驱动追问可用；浏览器刷新即清除录像 | 组织真实导师盲评，校准系统评分 |
 | Tauri 桌面端 | 工程、Sidecar 脚本和图标已具备 | 暂不把安装包作为 8 月初版阻塞项；9 月末视稳定性验收 |
 | 真实评测 | 已有离线合成基线和匿名评测管线 | 组织真实学生试用，区分工程基线与真实结论 |
 
@@ -330,6 +331,7 @@ FileMate/
 | GET | `/knowledge/sources` | 列出资料源 |
 | GET | `/knowledge/sources/{id}` | 获取资料正文和元数据 |
 | GET | `/knowledge/sources/{id}/artifacts` | 查询资料派生产物 |
+| GET | `/knowledge/sources/{id}/lineage` | 汇总资料到练习、错题、计划和面试的资产链 |
 | PUT | `/knowledge/sources/{id}/rights` | 声明资料权利来源与分享范围 |
 | GET/PATCH | `/knowledge/artifacts/{id}` | 查看或修改学习产物 |
 | GET | `/knowledge/search?q=...` | 跨资料本地检索 |
@@ -341,6 +343,10 @@ FileMate/
 | POST | `/ai/study-plan` | 生成并保存学习计划 |
 | GET | `/study-plans` | 列出学习计划 |
 | PATCH | `/study-plans/{id}/days/{index}` | 更新每日完成状态 |
+| POST | `/goals/reverse-plan` | 从目标和真实证据反推任务 |
+| GET | `/goals` | 列出已保存目标 |
+| PATCH | `/goals/{id}/tasks/{task_id}` | 更新目标任务完成状态 |
+| POST | `/goals/{id}/replan` | 依据最新证据动态重排 |
 | POST | `/quiz/attempts` | 提交作答并更新错题 |
 | GET | `/wrongbook` | 查询未掌握/已到期错题 |
 | GET | `/review/today` | 聚合今日计划与到期错题 |
@@ -371,11 +377,12 @@ FileMate/
 | `/history` | 历史记录 | Session、执行状态和撤销 |
 | `/ai-tools` | AI 工具箱 | 摘要、卡片、题目、笔记、问答 |
 | `/study-plan` | AI 学习计划 | 生成、查看和完成每日任务 |
+| `/goals` | 目标反推 | 目标、证据、能力缺口、行动任务与动态重排 |
 | `/wrongbook` | 错题复盘 | 错题、掌握状态和复习安排 |
 | `/interview` | 模拟面试 | 场景、摄像头本地预览、语音流畅度、分项评分与反馈 |
 | `/interview-bank` | 题库管理 | 筛选、新增、编辑、启停和删除面试题目 |
-| `/growth` | 成长数据 | 真实行为统计与匿名反馈导出 |
-| `/knowledge` | 个人知识库 | 资料、产物、跨资料检索和编辑 |
+| `/growth` | 成长数据 | 真实行为统计、证据驱动伙伴阶段与匿名反馈导出 |
+| `/knowledge` | 个人知识库 | 资料、产物、跨资料检索、编辑和六阶段资产链 |
 | `/trust` | 可信与隐私 | Agent 时间线、共享记忆撤销、资料授权与分享边界 |
 
 视觉必须遵循“日光学习台”：浅色、低饱和自然绿、真实数据优先；不使用暗色主界面、紫粉 AI 渐变、Emoji 功能图标、虚构准确率或无意义机器人视觉。
