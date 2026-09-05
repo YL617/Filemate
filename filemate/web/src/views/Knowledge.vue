@@ -1,6 +1,6 @@
 <template>
   <div class="knowledge-page">
-    <header class="page-head"><div><h1>个人知识库</h1><p>统一管理已解析资料，跨文档检索并核验引用位置。</p></div><router-link class="import-link" to="/ai-tools">添加学习资料</router-link></header>
+    <header class="page-head"><div><h1>个人知识库</h1><p>你的课件、笔记和练习，放在一起，也更容易找到。</p></div><router-link class="import-link" to="/ai-tools">添加学习资料</router-link></header>
 
     <section class="search-panel">
       <div class="search-row">
@@ -43,7 +43,7 @@
                 <article v-for="(stage,index) in lineage.stages" :key="stage.key" :class="stage.state"><span>{{ String(index + 1).padStart(2, '0') }}</span><strong>{{ stage.label }}</strong><p>{{ stage.primary }}</p><small>{{ stage.secondary }}</small></article>
               </div>
               <div v-if="artifacts.length" class="artifact-items"><button v-for="artifact in artifacts" :key="artifact.artifact_id" type="button" @click="openArtifact(artifact.artifact_id)"><span>{{ artifactLabel(artifact.artifact_type) }}</span><b>{{ artifact.title || '未命名产物' }}</b><em>打开</em></button></div>
-              <p v-else>该资料暂无学习产物，可从资料理解开始形成资产链。</p>
+              <p v-else>还没有笔记或练习，前往“资料理解”生成第一份内容。</p>
             </template>
           </div>
         </article>

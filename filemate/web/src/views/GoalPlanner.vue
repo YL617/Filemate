@@ -2,26 +2,20 @@
   <div class="goal-planner-page">
     <header class="goal-hero">
       <div>
-        <p class="eyebrow">GOAL BACKCASTING · 目标反推</p>
-        <h1>先写下终点，<em>再用真实证据规划今天</em></h1>
-        <p class="lead">FileMate 会读取本机已有的资料、练习、错题、计划与面试记录，定位能力缺口，并给出可执行任务。</p>
-      </div>
-      <div class="evidence-seal" aria-label="只依据真实学习记录">
-        <span>LOCAL EVIDENCE</span>
-        <strong>证据驱动</strong>
-        <small>无数据则显示待评测</small>
+        <h1>目标反推</h1>
+        <p class="lead">写下想完成的事，结合已有资料和练习记录，安排下一步。</p>
       </div>
     </header>
 
     <section class="create-panel">
       <div class="section-heading">
-        <div><span>01</span><h2>定义目标终点</h2></div>
-        <p>目标不是一句愿望，还需要截止日期和可核对的资料范围。</p>
+        <div><h2>新建目标</h2></div>
+        <p>设好截止日期，选上相关资料。</p>
       </div>
       <div class="goal-form">
         <label class="title-field">
           <span>目标名称</span>
-          <input v-model.trim="form.title" name="goal_title" maxlength="160" placeholder="例如：完成 FileMate 竞赛答辩并形成完整证据链" />
+          <input v-model.trim="form.title" name="goal_title" maxlength="160" placeholder="例如：准备好下周的竞赛答辩" />
         </label>
         <label>
           <span>目标类型</span>
@@ -49,13 +43,13 @@
           </select>
         </label>
         <button type="button" class="create-button" :disabled="creating || !canCreate" @click="createGoal">
-          {{ creating ? '正在读取本地证据…' : '生成反推路径' }}
+          {{ creating ? '正在读取本地记录…' : '安排下一步' }}
         </button>
       </div>
     </section>
 
     <DataState v-if="error" :error="error" @retry="load" />
-    <div v-else-if="loading" class="loading-state" aria-live="polite">正在读取本地目标与学习证据…</div>
+    <div v-else-if="loading" class="loading-state" aria-live="polite">正在读取目标和学习记录…</div>
 
     <template v-else-if="activeGoal">
       <section class="goal-toolbar">
@@ -72,7 +66,7 @@
             </select>
           </label>
           <button type="button" :disabled="replanning" @click="replan">
-            {{ replanning ? '重新读取中…' : '依据最新证据重排' }}
+            {{ replanning ? '重新读取中…' : '根据最新进度重排' }}
           </button>
         </div>
       </section>
@@ -87,8 +81,8 @@
       <section class="evidence-layout">
         <article class="evidence-panel">
           <div class="section-heading compact">
-            <div><span>02</span><h2>现有学习证据</h2></div>
-            <b :class="activeGoal.evidence_status">{{ activeGoal.evidence_status === 'ready' ? '已有行为证据' : '样本不足 · 待评测' }}</b>
+            <div><span>02</span><h2>现有学习记录</h2></div>
+            <b :class="activeGoal.evidence_status">{{ activeGoal.evidence_status === 'ready' ? '记录充足' : '记录较少 · 待评测' }}</b>
           </div>
           <div class="metric-grid">
             <div><strong>{{ activeGoal.evidence_snapshot.source_count }}</strong><span>本地资料</span></div>

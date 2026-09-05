@@ -1,14 +1,8 @@
-<!--
-  View: AI Tools
-  Design: 综合AI学习工具箱
-  功能：PDF摘要、知识卡生成、题目提取、笔记提取、AI问答
--->
 <template>
   <div class="ai-tools-page">
     <div class="page-header">
       <h1 class="page-title">
-        <el-icon class="title-icon"><MagicStick /></el-icon>
-        资料理解工作区
+        资料理解
       </h1>
       <p class="page-subtitle">上传学习资料，生成可编辑的摘要、知识卡、练习题与笔记。</p>
     </div>
@@ -338,7 +332,6 @@ import {
   Document,
   Download,
   List,
-  MagicStick,
   Memo,
   Notebook,
   Plus,
@@ -402,12 +395,12 @@ const chatMode = ref<'answer' | 'socratic' | 'feynman'>('answer')
 const tutorModes = [
   { id: 'answer' as const, label: '证据问答', description: '结论与引用' },
   { id: 'socratic' as const, label: '苏格拉底', description: '追问引导思考' },
-  { id: 'feynman' as const, label: '费曼训练', description: '讲给 AI 听' }
+  { id: 'feynman' as const, label: '费曼训练', description: '用自己的话讲' }
 ]
 const chatPlaceholder = computed(() => ({
-  answer: '输入问题，AI 基于资料回答…',
+  answer: '输入问题，从资料中寻找答案…',
   socratic: '输入你卡住的问题，导师会逐步追问…',
-  feynman: '用自己的话解释一个概念，AI 帮你查漏补缺…'
+  feynman: '用自己的话解释一个概念，检查遗漏的要点…'
 }[chatMode.value]))
 const questionAnswers = ref<Record<string, string>>({})
 const questionResults = ref<Record<string, QuizAttemptResult>>({})

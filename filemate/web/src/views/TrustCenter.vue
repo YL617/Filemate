@@ -2,19 +2,13 @@
   <div class="trust-page">
     <header class="hero">
       <div class="hero-copy">
-        <p class="eyebrow">TRUST CENTER · 本地可审计</p>
-        <h1>让每一次智能协作<br><em>都有来路，也有边界</em></h1>
-        <p class="lead">FileMate 不只帮助学生使用知识，也帮助学生负责任地管理知识。</p>
+        <h1>可信与隐私</h1>
+        <p class="lead">查看资料授权、任务处理过程，以及系统保存的记忆。</p>
         <div class="mode-line">
           <span class="pulse" aria-hidden="true" />
           <strong>{{ modeTitle }}</strong>
           <span>{{ modeDescription }}</span>
         </div>
-      </div>
-      <div class="trust-seal" aria-label="本地优先，过程可审计">
-        <span>LOCAL</span>
-        <strong>可信</strong>
-        <small>过程可审计</small>
       </div>
     </header>
 
@@ -23,14 +17,14 @@
     <template v-else-if="data">
       <section class="guarantee-strip" aria-label="数据边界">
         <article v-for="(item, index) in data.guarantees" :key="item">
-          <span>0{{ index + 1 }}</span><p>{{ item }}</p>
+          <span>0{{ index + 1 }}</span><p>{{ humanizeGuarantee(item) }}</p>
         </article>
       </section>
 
       <section class="workspace-grid">
         <article class="panel trace-panel">
           <div class="section-head">
-            <div><p class="eyebrow">真实执行轨迹</p><h2>Agent 协作时间线</h2></div>
+            <div><p class="eyebrow">任务记录</p><h2>处理过程</h2></div>
             <span>{{ data.runs.length }} 次任务</span>
           </div>
           <div v-if="data.runs.length" class="run-list">
@@ -38,28 +32,28 @@
               <button type="button" class="run-summary" :aria-expanded="expandedRun === run.run_id" @click="toggleRun(run.run_id)">
                 <span class="run-mark">{{ taskMark(run.task_type) }}</span>
                 <span class="run-copy"><strong>{{ run.goal }}</strong><small>{{ taskLabel(run.task_type) }} · {{ formatDate(run.updated_at) }}</small></span>
-                <span class="agent-stack"><i v-for="agent in run.selected_agents" :key="agent">{{ agent.replace(' Agent', '') }}</i></span>
+                <span class="agent-stack"><i v-for="agent in run.selected_agents" :key="agent">{{ assistantLabel(agent) }}</i></span>
                 <span class="status" :class="run.status">{{ runStatus(run.status) }}</span>
               </button>
               <ol v-if="expandedRun === run.run_id" class="steps">
                 <li v-for="step in run.steps" :key="step.step_id">
                   <span>{{ step.sequence }}</span>
-                  <div><strong>{{ step.agent_name }}</strong><p>{{ step.output_summary }}</p><small>输入仅记录 {{ Object.keys(step.input_refs).length }} 个来源标识，不保存原文</small></div>
+                  <div><strong>{{ assistantLabel(step.agent_name) }}</strong><p>{{ step.output_summary }}</p><small>只保存 {{ Object.keys(step.input_refs).length }} 个来源标识，不保存原文</small></div>
                 </li>
                 <li v-if="!run.steps.length" class="empty-step">尚无已完成步骤</li>
               </ol>
             </article>
           </div>
-          <div v-else class="empty">完成一场模拟面试或声明资料授权后，这里会出现真实协作轨迹。</div>
+          <div v-else class="empty">完成一场模拟面试或声明资料授权后，这里会显示处理过程。</div>
         </article>
 
         <aside class="panel roles-panel">
-          <div class="section-head"><div><p class="eyebrow">按需调用</p><h2>六角色能力目录</h2></div><span>非运行状态</span></div>
-          <p class="roles-intro">系统只选择完成当前任务所需的最少角色，不同时启动六个聊天窗口。</p>
+          <div class="section-head"><div><p class="eyebrow">协作分工</p><h2>六位专业助手</h2></div><span>按任务选择</span></div>
+          <p class="roles-intro">系统会根据当前任务安排需要的助手。</p>
           <div class="role-map">
             <article v-for="(role, index) in data.roles" :key="role.name">
               <span>{{ String(index + 1).padStart(2, '0') }}</span>
-              <div><strong>{{ role.name }}</strong><p>{{ role.responsibility }}</p></div>
+              <div><strong>{{ assistantLabel(role.name) }}</strong><p>{{ role.responsibility }}</p></div>
             </article>
           </div>
         </aside>
@@ -84,18 +78,18 @@
 
       <section class="panel memory-panel">
         <div class="section-head">
-          <div><p class="eyebrow">可撤销共享记忆</p><h2>Agent 记住了什么</h2></div>
+          <div><p class="eyebrow">可以撤销</p><h2>系统记住了什么</h2></div>
           <span>{{ data.memories.length }} 条摘要记忆</span>
         </div>
         <div v-if="data.memories.length" class="memory-grid">
           <article v-for="memory in data.memories" :key="memory.memory_id">
             <div class="memory-meta"><span>{{ memoryLabel(memory.memory_type) }}</span><small>{{ formatDate(memory.created_at) }}</small></div>
             <p>{{ memory.summary }}</p>
-            <div class="memory-scope"><span>可用角色</span><i v-for="agent in memory.allowed_agents" :key="agent">{{ agent }}</i></div>
+            <div class="memory-scope"><span>使用范围</span><i v-for="agent in memory.allowed_agents" :key="agent">{{ assistantLabel(agent) }}</i></div>
             <button type="button" :disabled="deletingMemory === memory.memory_id" @click="removeMemory(memory)">{{ deletingMemory === memory.memory_id ? '撤销中…' : '撤销这条记忆' }}</button>
           </article>
         </div>
-        <div v-else class="empty">当前没有可供 Agent 复用的摘要记忆。</div>
+        <div v-else class="empty">当前没有可复用的摘要记忆。</div>
       </section>
     </template>
   </div>
@@ -115,6 +109,19 @@ import {
   type SourceSharingScope,
   type TrustOverview
 } from '../services/api'
+
+function assistantLabel(value: string): string {
+  const labels: Record<string, string> = {
+    Planner: '规划助手', Retrieval: '资料助手', Coach: '学习助手',
+    Interviewer: '面试助手', Evaluator: '评价助手', Safety: '安全助手'
+  }
+  const name = value.replace(/\s*Agent$/i, '')
+  return labels[name] || `${name}助手`
+}
+
+function humanizeGuarantee(value: string): string {
+  return value.replaceAll('Agent', '助手').replaceAll('智能协作', '任务协作')
+}
 
 interface RightsDraft {
   rights_status: SourceRightsStatus
@@ -188,7 +195,7 @@ async function saveRights(source: SourceRights): Promise<void> {
 
 async function removeMemory(memory: AgentMemory): Promise<void> {
   try {
-    await ElMessageBox.confirm('撤销后，这条摘要将不再提供给后续 Agent。已有原始学习记录不会被删除。', '撤销共享记忆', { confirmButtonText: '确认撤销', cancelButtonText: '取消', type: 'warning' })
+    await ElMessageBox.confirm('撤销后，这条摘要将不再提供给后续助手。已有原始学习记录不会被删除。', '撤销共享记忆', { confirmButtonText: '确认撤销', cancelButtonText: '取消', type: 'warning' })
   } catch {
     return
   }

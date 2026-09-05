@@ -19,7 +19,7 @@
 }
 
 .brand-lockup {
-  width: 174px;
+  width: 156px;
   height: auto;
   display: block;
   object-fit: contain;

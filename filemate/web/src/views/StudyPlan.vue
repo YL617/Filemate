@@ -2,8 +2,8 @@
   <div class="study-plan-page">
     <header class="page-header">
       <div>
-        <h1>把课程资料变成每日复习计划</h1>
-        <p>围绕考试日期拆解重点、主动回忆、练习与模拟，并持续记录完成进度。</p>
+        <h1>学习计划</h1>
+        <p>选好资料和考试日期，把复习分到每一天。</p>
         <p v-if="restoredTitle" class="restore-note">已恢复：{{ restoredTitle }}，完成状态会自动保存到本机。</p>
       </div>
     </header>
@@ -59,7 +59,7 @@
 
       <button class="generate-button" :disabled="!canGenerate || isGenerating" @click="createPlan">
         <span v-if="isGenerating" class="spinner"></span>
-        {{ isGenerating ? 'AI 正在分析资料并排期…' : '生成个性化学习计划' }}
+        {{ isGenerating ? '正在分析资料并排期…' : '生成个性化学习计划' }}
       </button>
     </section>
 

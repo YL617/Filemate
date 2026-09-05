@@ -1,6 +1,6 @@
 <template>
   <div class="growth-page">
-    <header><div><h1>成长数据</h1><p>把资料、练习和面试记录转化为可解释的能力证据。</p></div><button type="button" @click="load">刷新数据</button></header>
+    <header><div><h1>成长数据</h1><p>最近学了什么、哪些还要练，在这里回顾。</p></div><button type="button" @click="load">刷新数据</button></header>
     <div v-if="loading" class="state" aria-live="polite">正在汇总本地学习数据…</div>
     <DataState v-else-if="error" :error="error" @retry="load" />
     <template v-else-if="data">
@@ -26,7 +26,7 @@
           <div v-if="Object.keys(data.interview_dimensions).length" class="bars"><div v-for="(score,name) in data.interview_dimensions" :key="name"><label><span>{{ name }}</span><b>{{ format(score) }}</b></label><i><em :style="{width:`${score}%`}"></em></i></div></div>
           <p v-else class="empty">完成一次模拟面试后生成能力画像</p>
         </article>
-        <article class="panel loop"><p class="eyebrow">学习闭环</p><h2>从资料到掌握</h2><div class="loop-flow"><span>资料入库<b>{{ data.source_count }}</b></span><i>→</i><span>计划执行<b>{{ data.completed_study_days }}</b></span><i>→</i><span>错题掌握<b>{{ data.mastered_wrong_count }}</b></span></div><p>所有统计仅从本地 SQLite 读取，不上传个人学习记录。</p></article>
+        <article class="panel loop"><h2>学习进度</h2><div class="loop-flow"><span>已存资料<b>{{ data.source_count }}</b></span><i>→</i><span>完成计划<b>{{ data.completed_study_days }}</b></span><i>→</i><span>掌握错题<b>{{ data.mastered_wrong_count }}</b></span></div><p>统计来自这台设备上保存的学习记录。</p></article>
       </section>
       <section class="panel evidence"><div><p class="eyebrow">真实使用反馈</p><h2>匿名产品反馈</h2><p>只统计匿名哈希、相关/不相关选择和数值指标，不导出问题原文、资料名或身份信息。</p></div><div class="evidence-metrics"><span><b>{{ data.product_feedback.total }}</b>有效标注</span><span><b>{{ format(data.product_feedback.positive_rate) }}%</b>正向率</span><button type="button" :disabled="!data.product_feedback.total" @click="exportFeedback">导出匿名 CSV</button></div></section>
       <section class="panel recent"><div class="panel-head"><div><p class="eyebrow">训练记录</p><h2>最近模拟面试</h2></div></div>

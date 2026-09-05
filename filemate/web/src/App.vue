@@ -11,10 +11,10 @@
       v-if="mobileNavOpen"
       class="mobile-backdrop"
       aria-label="关闭导航"
-      @click="mobileNavOpen = false"
+      @click="closeMobileNav"
     />
 
-    <aside class="sidebar" aria-label="主导航">
+    <aside id="main-navigation" class="sidebar" aria-label="主导航" @keydown.esc="closeMobileNav" @keydown.tab="trapMobileFocus">
       <div class="sidebar-head">
         <router-link class="brand-link" to="/" @click="mobileNavOpen = false">
           <Logo />
@@ -28,14 +28,6 @@
         </button>
       </div>
 
-      <div class="service-state" :class="{ online: backendConnected }" aria-live="polite">
-        <span class="state-indicator" />
-        <div class="state-copy">
-          <strong>{{ backendConnected ? '本地服务已连接' : '本地服务未连接' }}</strong>
-          <span>{{ backendConnected ? '资料仅在本机处理' : '正在等待 Sidecar 启动' }}</span>
-        </div>
-      </div>
-
       <nav class="nav-groups">
         <section v-for="group in menuGroups" :key="group.label" class="nav-group">
           <p class="nav-group-label">{{ group.label }}</p>
@@ -43,28 +35,28 @@
             v-for="item in group.items"
             :key="item.path"
             :to="item.path"
+            :title="item.title"
+            :aria-label="item.title"
             class="nav-item"
             @click="mobileNavOpen = false"
           >
             <el-icon><component :is="item.icon" /></el-icon>
             <span>{{ item.title }}</span>
-            <span v-if="item.badge" class="nav-badge">{{ item.badge }}</span>
           </router-link>
         </section>
       </nav>
 
       <div class="sidebar-foot">
-        <div class="today-summary">
-          <el-icon><DataLine /></el-icon>
-          <span>今日处理</span>
-          <strong>{{ todayCount }}</strong>
+        <div class="service-state" :class="{ online: backendConnected, checking: backendConnected === null }" aria-live="polite">
+          <span class="state-indicator" />
+          <span>{{ backendConnected === null ? '正在连接…' : backendConnected ? '服务已连接' : '服务未连接' }}</span>
         </div>
-        <span class="version-label">v1.3 α</span>
+        <button class="version-label" title="应用设置" aria-label="打开应用设置" @click="showSettings = true">v1.3 α</button>
       </div>
     </aside>
 
     <main id="main-content" class="workspace" tabindex="-1">
-      <div v-if="!backendConnected" class="service-banner" role="alert">
+      <div v-if="backendConnected === false" class="service-banner" role="alert">
         <el-icon><Connection /></el-icon>
         <div>
           <strong>本地服务尚未连接</strong>
@@ -78,19 +70,22 @@
       <header class="topbar">
         <div class="topbar-title">
           <button
+            ref="mobileMenuButton"
             class="icon-button mobile-menu-button"
             aria-label="打开导航"
-            @click="mobileNavOpen = true"
+            :aria-expanded="mobileNavOpen"
+            aria-controls="main-navigation"
+            @click="openMobileNav"
           >
             <el-icon><Menu /></el-icon>
           </button>
           <div>
-            <p>FileMate / {{ pageTitle }}</p>
-            <h1>{{ pageTitle }}</h1>
+            <span class="workspace-label">我的空间</span><span class="breadcrumb-divider" aria-hidden="true">/</span><span class="page-title">{{ pageTitle }}</span>
           </div>
         </div>
 
         <div class="topbar-actions">
+          <button class="finder-trigger" aria-label="查找功能" @click="showFinder = true"><el-icon><Search /></el-icon><span>查找功能</span><kbd>Ctrl K</kbd></button>
           <button
             class="icon-button"
             :class="{ spinning: refreshing }"
@@ -137,7 +132,7 @@
           <el-icon><Monitor /></el-icon>
           <div>
             <strong>显示模式</strong>
-            <span>当前使用蓝绿浅色工作台</span>
+            <span>浅色背景与自然绿强调色</span>
           </div>
           <el-tag effect="plain">浅色</el-tag>
         </div>
@@ -153,7 +148,7 @@
           <el-icon><Connection /></el-icon>
           <div>
             <strong>服务状态</strong>
-            <span>{{ backendConnected ? 'FastAPI Sidecar 运行正常' : 'Sidecar 暂未连接' }}</span>
+            <span>{{ backendConnected ? '可以导入、查看和保存资料' : '请启动服务后重新连接' }}</span>
           </div>
           <el-tag :type="backendConnected ? 'success' : 'danger'" effect="plain">
             {{ backendConnected ? '在线' : '离线' }}
@@ -164,12 +159,20 @@
         <el-button @click="showSettings = false">关闭</el-button>
       </template>
     </el-dialog>
+    <el-dialog v-model="showFinder" title="查找功能" width="min(520px, calc(100vw - 32px))" @opened="finderInput?.focus()" @closed="finderQuery = ''">
+      <div class="finder">
+        <label class="finder-input"><el-icon><Search /></el-icon><input ref="finderInput" v-model="finderQuery" aria-label="输入功能名称" placeholder="试试：面试、资料、计划…" @keydown.enter.prevent="openFirstResult" /></label>
+        <nav class="finder-results" aria-label="功能查找结果"><router-link v-for="item in finderResults" :key="item.path" :to="item.path" @click="showFinder = false"><el-icon><component :is="item.icon" /></el-icon><span>{{ item.title }}</span><small>{{ item.group }}</small></router-link></nav>
+        <p v-if="!finderResults.length" class="finder-empty" role="status">没有找到这个功能，换个关键词试试。</p>
+        <p class="finder-hint">Enter 打开第一项 · Esc 关闭</p>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   Calendar,
@@ -184,7 +187,6 @@ import {
   FullScreen,
   House,
   Lock,
-  MagicStick,
   Menu,
   Monitor,
   Notebook,
@@ -195,73 +197,92 @@ import {
   Microphone,
   DataAnalysis,
   FolderOpened,
-  Aim
+  Aim,
+  Search
 } from '@element-plus/icons-vue'
 import Logo from './components/Logo.vue'
-import { checkHealth, getHistory } from './services/api'
+import { checkHealth } from './services/api'
 
 const route = useRoute()
+const router = useRouter()
 const sidebarCollapsed = ref(false)
 const mobileNavOpen = ref(false)
 const showSettings = ref(false)
-const backendConnected = ref(false)
+const backendConnected = ref<boolean | null>(null)
 const serviceChecking = ref(false)
-const todayCount = ref(0)
 const refreshing = ref(false)
 const refreshToken = ref(0)
+const showFinder = ref(false)
+const finderQuery = ref('')
+const finderInput = ref<HTMLInputElement | null>(null)
+const mobileMenuButton = ref<HTMLButtonElement | null>(null)
+let refreshTimer: number | undefined
 
 const menuGroups = [
   {
-    label: '总览',
+    label: '工作空间',
     items: [
       { path: '/', title: '学习工作台', icon: House },
-      { path: '/today', title: '今日学习', icon: DataLine, badge: '推荐' }
+      { path: '/today', title: '今日学习', icon: DataLine },
+      { path: '/schedule', title: '学习日程', icon: Calendar }
     ]
   },
   {
-    label: '学习资产',
+    label: '资料管理',
     items: [
       { path: '/import', title: '导入资料', icon: DocumentAdd },
       { path: '/knowledge', title: '个人知识库', icon: FolderOpened },
       { path: '/classification', title: '分类确认', icon: Collection },
       { path: '/naming', title: '命名确认', icon: Edit },
-      { path: '/schedule', title: '学习日程', icon: Calendar },
-      { path: '/history', title: '处理记录', icon: Clock },
-      { path: '/trust', title: '可信与隐私', icon: Lock, badge: '新' }
+      { path: '/history', title: '处理记录', icon: Clock }
     ]
   },
   {
-    label: '学习智能',
+    label: '学习与练习',
     items: [
-      { path: '/ai-tools', title: '资料理解', icon: MagicStick, badge: '可用' },
+      { path: '/ai-tools', title: '资料理解', icon: Reading },
       { path: '/study-plan', title: '学习计划', icon: Reading },
-      { path: '/goals', title: '目标反推', icon: Aim, badge: '新' },
-      { path: '/wrongbook', title: '错题复盘', icon: Tickets, badge: '新' },
-      { path: '/interview', title: '模拟面试', icon: Microphone, badge: '试用' },
+      { path: '/goals', title: '目标反推', icon: Aim },
+      { path: '/wrongbook', title: '错题复盘', icon: Tickets },
+      { path: '/interview', title: '模拟面试', icon: Microphone },
       { path: '/interview-bank', title: '题库管理', icon: Notebook },
-      { path: '/growth', title: '成长数据', icon: DataAnalysis }
+      { path: '/growth', title: '成长数据', icon: DataAnalysis },
+      { path: '/trust', title: '可信与隐私', icon: Lock }
     ]
   }
 ]
 
 const pageTitle = computed(() => String(route.meta.title || '学习工作台'))
+const finderResults = computed(() => menuGroups.flatMap(group => group.items.map(item => ({ ...item, group: group.label }))).filter(item => item.title.includes(finderQuery.value.trim())))
+
+function openFirstResult(): void {
+  const first = finderResults.value[0]
+  if (first) { showFinder.value = false; void router.push(first.path) }
+}
+async function openMobileNav(): Promise<void> {
+  mobileNavOpen.value = true
+  await nextTick()
+  document.querySelector<HTMLAnchorElement>('.sidebar .brand-link')?.focus()
+}
+function closeMobileNav(): void { mobileNavOpen.value = false; mobileMenuButton.value?.focus() }
+function trapMobileFocus(event: KeyboardEvent): void {
+  if (!mobileNavOpen.value) return
+  const links = Array.from(document.querySelectorAll<HTMLElement>('.sidebar a, .sidebar button')).filter(item => item.getClientRects().length)
+  const first = links[0], last = links[links.length - 1]
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+}
+function handleShortcut(event: KeyboardEvent): void {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); mobileNavOpen.value = false; showFinder.value = !showFinder.value }
+}
+watch(() => route.fullPath, () => { mobileNavOpen.value = false })
 
 async function loadShellState(): Promise<void> {
   serviceChecking.value = true
   try {
     backendConnected.value = await checkHealth()
-    if (!backendConnected.value) {
-      todayCount.value = 0
-      return
-    }
-    const sessions = await getHistory(undefined, 100)
-    const today = new Date().toDateString()
-    todayCount.value = sessions.filter(
-      item => new Date(item.created_at).toDateString() === today
-    ).length
   } catch {
     backendConnected.value = false
-    todayCount.value = 0
   } finally {
     serviceChecking.value = false
   }
@@ -271,7 +292,7 @@ async function refreshPage(): Promise<void> {
   refreshing.value = true
   await loadShellState()
   refreshToken.value += 1
-  window.setTimeout(() => {
+  refreshTimer = window.setTimeout(() => {
     refreshing.value = false
   }, 220)
   ElMessage.success('工作台已刷新')
@@ -289,7 +310,8 @@ async function toggleFullscreen(): Promise<void> {
   }
 }
 
-onMounted(loadShellState)
+onMounted(() => { void loadShellState(); window.addEventListener('keydown', handleShortcut) })
+onUnmounted(() => { window.removeEventListener('keydown', handleShortcut); window.clearTimeout(refreshTimer) })
 </script>
 
 <style scoped>
@@ -299,7 +321,6 @@ onMounted(loadShellState)
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   color: var(--text-primary);
   background: var(--bg-base);
-  transition: grid-template-columns var(--motion-panel);
 }
 
 .app-shell.sidebar-collapsed {
@@ -311,19 +332,17 @@ onMounted(loadShellState)
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: linear-gradient(180deg, #f4f8ff 0%, #eef8f3 58%, #e8f3ec 100%);
-  border-right: 1px solid #d3dfdf;
+  background: #edf2ed;
+  border-right: 1px solid var(--border-subtle);
   z-index: var(--z-sidebar);
 }
 
 .sidebar-head {
-  min-height: 76px;
-  padding: 16px 14px;
+  min-height: 80px;
+  padding: 20px 16px;
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.54);
-  border-bottom: 1px solid rgba(184, 204, 210, 0.68);
 }
 
 .brand-link {
@@ -331,12 +350,11 @@ onMounted(loadShellState)
   flex: 1;
   color: inherit;
   text-decoration: none;
-  transition: opacity var(--motion-fast), transform var(--motion-fast);
+  transition: opacity var(--motion-fast);
 }
 
 .brand-link:hover {
   opacity: 0.92;
-  transform: translateY(-1px);
 }
 
 .icon-button {
@@ -348,7 +366,7 @@ onMounted(loadShellState)
   justify-content: center;
   color: var(--text-secondary);
   background: transparent;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid transparent;
   border-radius: var(--radius-control);
   cursor: pointer;
   transition: color var(--motion-fast), background var(--motion-fast), border-color var(--motion-fast);
@@ -361,15 +379,12 @@ onMounted(loadShellState)
 }
 
 .service-state {
-  min-height: 62px;
-  margin: 14px 12px 8px;
-  padding: 12px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   gap: 10px;
-  background: rgba(255, 255, 255, 0.68);
-  border: 1px solid rgba(184, 204, 210, 0.68);
-  border-radius: var(--radius-panel);
+  font-size: 11px;
+  color: var(--text-secondary);
 }
 
 .state-indicator {
@@ -404,12 +419,12 @@ onMounted(loadShellState)
 
 .nav-groups {
   flex: 1;
-  padding: 8px 10px 16px;
+  padding: 12px 12px 20px;
   overflow-y: auto;
 }
 
 .nav-group + .nav-group {
-  margin-top: 18px;
+  margin-top: 24px;
 }
 
 .nav-group-label {
@@ -422,7 +437,7 @@ onMounted(loadShellState)
 
 .nav-item {
   min-height: 44px;
-  margin-bottom: 3px;
+  margin-bottom: 2px;
   padding: 0 12px;
   display: flex;
   align-items: center;
@@ -431,8 +446,8 @@ onMounted(loadShellState)
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   text-decoration: none;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
   transition: color var(--motion-fast), background var(--motion-fast), border-color var(--motion-fast);
 }
 
@@ -442,9 +457,10 @@ onMounted(loadShellState)
 }
 
 .nav-item.router-link-active {
-  color: var(--brand-blue-strong);
-  background: var(--brand-blue-soft);
-  border-color: var(--brand-blue-border);
+  color: var(--accent);
+  background: #dce9df;
+  border-color: transparent;
+  font-weight: 600;
 }
 
 .nav-item .el-icon {
@@ -559,13 +575,13 @@ onMounted(loadShellState)
 
 .topbar {
   min-height: var(--topbar-height);
-  padding: 0 28px;
+  padding: 0 36px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  background: #fbfdff;
-  border-bottom: 1px solid #dbe5e9;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-subtle);
   z-index: var(--z-sticky);
 }
 
@@ -616,12 +632,9 @@ onMounted(loadShellState)
 .content-scroll {
   flex: 1;
   min-height: 0;
-  padding: 28px 32px 40px;
+  padding: 28px 36px 48px;
   overflow: auto;
-  background:
-    radial-gradient(circle at 96% 1%, rgba(56, 126, 239, 0.08), transparent 260px),
-    radial-gradient(circle at 2% 96%, rgba(47, 125, 85, 0.07), transparent 300px),
-    var(--bg-base);
+  background: var(--bg-base);
 }
 
 .settings-list {
@@ -793,4 +806,38 @@ onMounted(loadShellState)
     padding: 18px 14px 28px;
   }
 }
+
+.workspace-label { color: var(--text-muted); font-size: 12px; }
+.breadcrumb-divider { color: var(--border-strong); margin: 0 14px; }
+.page-title { font-size: 13px; font-weight: 500; }
+.version-label { min-height: 44px; border: 0; background: transparent; }
+.service-state.checking .state-indicator { background: var(--text-muted); }
+.finder-trigger { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; margin-right: 8px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-surface); color: var(--text-muted); font-size: 12px; }
+.finder-trigger:hover { border-color: var(--accent-border); color: var(--accent); }
+.finder-trigger kbd { margin-left: 24px; padding: 3px 5px; border: 1px solid var(--border-subtle); border-radius: 4px; font: 10px var(--font-mono); }
+.finder-input { display: flex; align-items: center; gap: 12px; border: 1px solid var(--border-strong); border-radius: 8px; padding: 0 14px; color: var(--text-muted); }
+.finder-input:focus-within { border-color: var(--accent); outline: 2px solid var(--accent-soft); }
+.finder-input input { min-width: 0; width: 100%; min-height: 48px; border: 0; background: transparent; color: var(--text-primary); outline: none; font-size: 14px; }
+.finder-results { max-height: 360px; overflow: auto; margin-top: 12px; }
+.finder-results a { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 12px; border-radius: 8px; color: var(--text-primary); font-size: 13px; text-decoration: none; }
+.finder-results a:hover { background: var(--accent-soft); }
+.finder-results small { margin-left: auto; color: var(--text-muted); font-size: 11px; }
+.finder-hint,.finder-empty { color: var(--text-muted); font-size: 12px; margin: 16px 0 0; }
+.finder-hint { padding-top: 12px; border-top: 1px solid var(--border-subtle); }
+@media(max-width: 1100px) { .finder-trigger kbd { display: none; } }
+@media(max-width: 900px) {
+  .sidebar-collapsed .brand-link { display: block; }
+  .sidebar-collapsed .nav-group-label,.sidebar-collapsed .nav-item > span { display: block; }
+  .sidebar-collapsed .sidebar-foot,.sidebar-collapsed .service-state { display: flex; }
+  .sidebar-collapsed .nav-item { justify-content: flex-start; padding: 0 12px; }
+}
+@media(max-width: 560px) {
+  .workspace-label,.breadcrumb-divider,.finder-trigger span,.finder-trigger kbd { display: none; }
+  .finder-trigger { width: 44px; height: 44px; justify-content: center; padding: 0; margin: 0; border: 0; }
+  .topbar-actions { gap: 0; }
+  .topbar { gap: 6px; padding: 0 12px; }
+  .topbar-title { gap: 4px; }
+  .page-title { font-size: 12px; }
+}
+
 </style>

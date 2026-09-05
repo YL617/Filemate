@@ -2,8 +2,8 @@
   <div class="today-page">
     <header class="hero">
       <div>
-        <h1>今天，只完成最重要的学习任务</h1>
-        <p>根据计划日期、考试紧迫度和错题次数自动排序，完成后立即更新本地成长记录。</p>
+        <h1>今日学习</h1>
+        <p>按轻重缓急排好顺序，从第一件开始。</p>
       </div>
       <button type="button" :disabled="loading" @click="load">{{ loading ? '刷新中…' : '刷新队列' }}</button>
     </header>
@@ -25,7 +25,7 @@
       <section class="summary" aria-label="今日学习概览">
         <article><span>推荐任务</span><strong>{{ data.items.length }}</strong><small>按薄弱程度排序</small></article>
         <article><span>预计用时</span><strong>{{ data.recommended_minutes }}</strong><small>分钟</small></article>
-        <article><span>进行中计划</span><strong>{{ data.active_plan_count }}</strong><small>可跨重启继续</small></article>
+        <article><span>进行中计划</span><strong>{{ data.active_plan_count }}</strong><small>进度自动保存</small></article>
         <article><span>待复习错题</span><strong>{{ data.pending_wrong_count }}</strong><small>连续答对两次掌握</small></article>
       </section>
 
@@ -53,7 +53,7 @@
       </section>
 
       <section v-else class="empty">
-        <span><el-icon><CircleCheckFilled /></el-icon></span><h2>今天的队列已经清空</h2><p>可以添加新的课程资料，或者创建下一份考试计划。</p>
+        <span><el-icon><CircleCheckFilled /></el-icon></span><h2>今天没有待完成的任务</h2><p>可以读一份新资料，或者为下次考试安排计划。</p>
         <div><router-link to="/ai-tools">理解新资料</router-link><router-link class="secondary" to="/study-plan">创建学习计划</router-link></div>
       </section>
     </template>

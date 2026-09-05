@@ -16,7 +16,7 @@
       <span class="mood-chip">{{ moodLabel }}</span>
     </div>
     <div class="companion-copy">
-      <p>FILEMATE 学习伙伴</p>
+      <p>FileMate 学习伙伴</p>
       <h2>{{ title }}</h2>
       <span>{{ message }}</span>
       <small v-if="evidence">{{ evidence }}</small>
@@ -82,24 +82,12 @@ const portraitStyle = computed(() => ({
   min-height: 178px;
   padding: 22px 24px;
   overflow: hidden;
-  border: 1px solid #cbddeb;
-  border-radius: 22px;
-  background:
-    radial-gradient(circle at 12% 14%, rgba(84, 137, 255, .18), transparent 34%),
-    linear-gradient(120deg, #f8fbff 0%, #ffffff 52%, #eff9f4 100%);
-  box-shadow: 0 16px 40px rgba(35, 78, 111, .09);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--bg-surface);
 }
 
-.companion-card::after {
-  position: absolute;
-  right: -62px;
-  bottom: -92px;
-  width: 220px;
-  height: 220px;
-  border: 28px solid rgba(47, 143, 104, .08);
-  border-radius: 50%;
-  content: '';
-}
+
 
 .portrait-shell { position: relative; z-index: 1; justify-self: center; }
 .portrait {
@@ -108,9 +96,9 @@ const portraitStyle = computed(() => ({
   height: 132px;
   overflow: hidden;
   border: 4px solid rgba(255, 255, 255, .94);
-  border-radius: 36px 36px 48px 48px;
+  border-radius: 18px;
   background: #f5f8ff;
-  box-shadow: 0 12px 28px rgba(37, 99, 235, .16);
+
 }
 .portrait img {
   position: absolute;
@@ -126,33 +114,33 @@ const portraitStyle = computed(() => ({
   bottom: -7px;
   padding: 6px 10px;
   border: 2px solid #fff;
-  border-radius: 999px;
-  background: #2563eb;
+  border-radius: 6px;
+  background: var(--accent);
   color: #fff;
   font-size: 11px;
   font-weight: 800;
-  box-shadow: 0 6px 14px rgba(37, 99, 235, .2);
+
 }
 .companion-copy { position: relative; z-index: 1; min-width: 0; }
-.companion-copy p { margin: 0 0 8px; color: #2563eb; font-size: 11px; font-weight: 800; letter-spacing: .12em; }
-.companion-copy h2 { margin: 0 0 8px; color: #132b46; font-size: clamp(19px, 2vw, 25px); line-height: 1.3; }
+.companion-copy p { margin: 0 0 8px; color: var(--text-muted); font-size: 11px; font-weight: 500; letter-spacing: .02em; }
+.companion-copy h2 { margin: 0 0 8px; color: var(--text-primary); font-weight: 500; font-size: clamp(18px, 2vw, 22px); line-height: 1.3; }
 .companion-copy > span { display: block; color: #526a80; line-height: 1.65; }
 .companion-copy small { display: inline-block; margin-top: 10px; padding: 5px 9px; border-radius: 8px; background: rgba(37, 99, 235, .07); color: #48627a; }
 .growth-progress { max-width: 600px; margin-top: 13px; }
 .growth-progress > div { display: flex; justify-content: space-between; gap: 14px; color: #36566f; font-size: 11px; }
 .growth-progress > div b { color: #176f52; }
 .growth-progress > i { display: block; height: 6px; margin-top: 6px; overflow: hidden; border-radius: 99px; background: rgba(41, 92, 125, .12); }
-.growth-progress > i em { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #2d78e4, #35a17c); transition: width .3s ease; }
+.growth-progress > i em { display: block; height: 100%; border-radius: inherit; background: var(--accent);  }
 .growth-progress > p { margin: 5px 0 0; color: #708595; font-size: 10px; }
 .companion-action {
   position: relative;
   z-index: 1;
   display: inline-flex;
-  min-height: 42px;
+  min-height: 44px;
   align-items: center;
   padding: 0 16px;
   border-radius: 11px;
-  background: #176f52;
+  background: var(--accent);
   color: #fff;
   font-weight: 700;
   text-decoration: none;
@@ -165,10 +153,6 @@ const portraitStyle = computed(() => ({
 .mood-wink .mood-chip,
 .mood-happy .mood-chip { background: #18815d; }
 
-@media (prefers-reduced-motion: no-preference) {
-  .portrait-shell { animation: companion-breathe 4.8s ease-in-out infinite; }
-}
-@keyframes companion-breathe { 50% { transform: translateY(-4px); } }
 @media (max-width: 720px) {
   .companion-card { grid-template-columns: 104px 1fr; gap: 16px; }
   .portrait { width: 92px; height: 92px; border-radius: 28px; }
